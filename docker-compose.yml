@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: payman
+      POSTGRES_PASSWORD: payman
+      POSTGRES_DB: payman
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payman -d payman"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://payman:payman@postgres:5432/payman
+      - RUST_LOG=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mock_psp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./psp"]
+    ports:
+      - "9090:9090"
+
+volumes:
+  postgres_data:
