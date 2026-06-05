@@ -1,0 +1,18 @@
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
+use crate::middleware::auth::hash_api_key;
+
+pub struct GeneratedApiKey {
+    pub raw: String,       
+    pub hash: String,      
+    pub prefix: String,   
+}
+
+pub fn generate_api_key() -> GeneratedApiKey {
+    // format: sk_live_{uuid without hyphens}
+    let raw = format!("sk_live_{}", Uuid::new_v4().to_string().replace("-", ""));
+    let prefix = raw[..16].to_string(); 
+    let hash = hash_api_key(&raw);
+
+    GeneratedApiKey { raw, hash, prefix }
+}
