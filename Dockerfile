@@ -4,6 +4,8 @@ FROM rust:1.96 AS builder
 WORKDIR /usr/src/app
 COPY . .
 
+ENV SQLX_OFFLINE=true
+
 RUN cargo build --release 
 
 # then build the final image
