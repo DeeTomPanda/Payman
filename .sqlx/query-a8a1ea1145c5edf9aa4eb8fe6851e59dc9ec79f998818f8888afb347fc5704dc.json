@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE invoices\n                SET state = $1, updated_at = NOW()\n                WHERE id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "invoice_state",
+            "kind": {
+              "Enum": [
+                "draft",
+                "open",
+                "processing",
+                "paid",
+                "void",
+                "uncollectible"
+              ]
+            }
+          }
+        },
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a8a1ea1145c5edf9aa4eb8fe6851e59dc9ec79f998818f8888afb347fc5704dc"
+}

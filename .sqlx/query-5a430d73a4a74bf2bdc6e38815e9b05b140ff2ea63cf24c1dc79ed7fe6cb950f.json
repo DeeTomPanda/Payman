@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE webhook_deliveries\n            SET attempt_count = attempt_count + 1,\n                next_retry_at = NOW() + (INTERVAL '1 minute' * POWER(2, attempt_count)),\n                status = CASE\n                    WHEN attempt_count >= 4 THEN 'failed'::delivery_status\n                    ELSE 'pending'::delivery_status\n                END,\n                updated_at = NOW()\n            WHERE id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5a430d73a4a74bf2bdc6e38815e9b05b140ff2ea63cf24c1dc79ed7fe6cb950f"
+}

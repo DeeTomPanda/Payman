@@ -3,6 +3,7 @@ BEGIN;
 CREATE TYPE invoice_state AS ENUM (
     'draft',
     'open',
+    'processing',
     'paid',
     'void',
     'uncollectible'

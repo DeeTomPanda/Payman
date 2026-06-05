@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT b.id, b.name, b.created_at\n        FROM businesses b\n        JOIN api_keys k ON k.business_id = b.id\n        WHERE k.key_hash = $1\n        AND k.revoked = false\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "beb271901519ffd6bbe74e2a32a7c1b5afcb4aeebfc71528373cb8577b6c36af"
+}

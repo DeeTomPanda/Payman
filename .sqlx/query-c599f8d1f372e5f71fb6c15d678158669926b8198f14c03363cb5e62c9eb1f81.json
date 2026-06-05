@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT response_body FROM idempotency_keys\n        WHERE key = $1 AND business_id = $2\n        AND created_at > NOW() - INTERVAL '24 hours'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "response_body",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c599f8d1f372e5f71fb6c15d678158669926b8198f14c03363cb5e62c9eb1f81"
+}
