@@ -91,12 +91,9 @@ void (terminal) ◄─────────┘       │
 | `open` | `void` | `POST /invoices/:id/void` |
 | `open` | `uncollectible` | manual mark (no endpoint yet) |
 | `processing` | `paid` | PSP returns success |
-| `processing` | `open` | PSP fails or times out (failure recovery) |
 | `processing` | `uncollectible` | manual mark (no endpoint yet) |
 
 **Terminal states**: `paid`, `void`, `uncollectible`. No transitions out.
-
-**Reversible transitions**: None, strictly speaking. `processing → open` looks like a reversal but is a failure recovery path — the payment did not succeed, so open is the correct state.
 
 **How invalid transitions are rejected**: `InvoiceState::can_transition_to()` is called before every state change. Any transition not in the table above returns HTTP 422 with error code `invalid_state_transition`. No DB write occurs.
 

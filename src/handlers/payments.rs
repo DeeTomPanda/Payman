@@ -29,7 +29,6 @@ async fn pay_invoice(
     headers: axum::http::HeaderMap,
     Json(req): Json<PayInvoiceRequest>,
 ) -> AppResult<Json<PaymentAttempt>> {
-
     // extract idempotency key
     let idempotency_key = headers
         .get("Idempotency-Key")
@@ -117,9 +116,9 @@ async fn pay_invoice(
     .fetch_one(&mut *tx)
     .await?;
 
-    let pending_body = serde_json::to_value(&attempt)
-        .map_err(|e| AppError::Internal(anyhow!(e)))?;
- 
+    let pending_body =
+        serde_json::to_value(&attempt).map_err(|e| AppError::Internal(anyhow!(e)))?;
+
     sqlx::query!(
         r#"
         INSERT INTO idempotency_keys
@@ -137,13 +136,12 @@ async fn pay_invoice(
     .execute(&mut *tx)
     .await?;
 
-
     tx.commit().await?;
 
     // call psp after commit
     let psp_result = call_psp(&state.psp_url, &req.card_token, invoice.total_cents).await;
 
-    let (final_attempt,pay_response) = match psp_result {
+    let result=match psp_result {
         PspResult::Succeeded { psp_ref } => {
             // update attempt + invoice in one transaction
             let mut tx2 = state.db.begin().await?;
@@ -177,6 +175,23 @@ async fn pay_invoice(
             .execute(&mut *tx2)
             .await?;
 
+            let response_body =
+                serde_json::to_value(&updated).map_err(|e| AppError::Internal(anyhow!(e)))?;
+
+            sqlx::query!(
+                r#"
+                UPDATE idempotency_keys
+                SET response_body = $1,response_status = $2, updated_at = NOW()
+                WHERE key = $3 AND business_id = $4
+                "#,
+                response_body,
+                200,
+                idempotency_key,
+                auth.business.id,
+            )
+            .execute(&mut *tx2)
+            .await?;
+
             tx2.commit().await?;
 
             // fire webhook in background
@@ -189,8 +204,7 @@ async fn pay_invoice(
                     tracing::error!("webhook dispatch failed: {}", e);
                 }
             });
-
-            (updated,false) // clear response
+            (updated)
         }
 
         PspResult::Failed { code } => {
@@ -225,6 +239,23 @@ async fn pay_invoice(
             .execute(&mut *tx2)
             .await?;
 
+            let response_body =
+                serde_json::to_value(&updated).map_err(|e| AppError::Internal(anyhow!(e)))?;
+
+            sqlx::query!(
+                r#"
+                UPDATE idempotency_keys
+                SET response_body = $1,response_status = $2, updated_at = NOW()
+                WHERE key = $3 AND business_id = $4
+                "#,
+                response_body,
+                200,
+                idempotency_key,
+                auth.business.id,
+            )
+            .execute(&mut *tx2)
+            .await?;
+
             tx2.commit().await?;
 
             let db = state.db.clone();
@@ -241,8 +272,7 @@ async fn pay_invoice(
                     tracing::error!("webhook dispatch failed: {}", e);
                 }
             });
-
-            (updated,false) // clear response
+            (updated)
         }
 
         // timeout or network error
@@ -252,30 +282,29 @@ async fn pay_invoice(
                 attempt_id
             );
 
-            (attempt,true) // unclear response
+
+              // store idempotency key with final response
+            let response_body =
+                serde_json::to_value(&attempt).map_err(|e| AppError::Internal(anyhow!(e)))?;
+
+            sqlx::query!(
+                r#"
+                UPDATE idempotency_keys
+                SET response_body = $1,response_status = $2, updated_at = NOW()
+                WHERE key = $3 AND business_id = $4
+                "#,
+                response_body,
+                202,
+                idempotency_key,
+                auth.business.id,
+            )
+            .execute(&state.db)
+            .await?;
+
+            (attempt)
         }
     };
 
-    // store idempotency key with final response
-    let response_body =
-        serde_json::to_value(&final_attempt).map_err(|e| AppError::Internal(anyhow!(e)))?;
 
-    let final_status = if pay_response { 202i32 } else { 200i32 };
-
-    sqlx::query!(
-        r#"
-        UPDATE idempotency_keys
-        SET response_body = $1,response_status = $2, updated_at = NOW()
-        WHERE key = $3 AND business_id = $4
-        "#,
-        response_body,
-        final_status,
-        idempotency_key,
-        auth.business.id,
-    )
-    .execute(&state.db)
-    .await?;
-
-
-    Ok(Json(final_attempt))
+    Ok(Json(result))
 }

@@ -43,6 +43,7 @@ curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
   -H "Idempotency-Key: pay-001" \
   -d '{"card_token": "tok_insufficient_funds"}' | jq .
 
+# 6. Return the prevous response to avoid retries
 curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \

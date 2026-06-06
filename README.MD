@@ -14,6 +14,7 @@ A minimal billing API built with Rust (Axum), PostgreSQL, and a mock PSP.
 ## Running
 
 ```bash
+docker compose build --no-cache
 docker compose up
 ```
 
