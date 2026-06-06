@@ -1,9 +1,8 @@
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use crate::middleware::auth::hash_api_key;
 
 pub struct GeneratedApiKey {
-    pub raw: String,       
+    pub raw: String, // only shown once in the response   
     pub hash: String,      
     pub prefix: String,   
 }

@@ -2,16 +2,20 @@ use axum::{Router, routing::get};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
-use tokio::net::TcpListener;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber;
+
 
 mod errors;
 mod handlers;
 mod middleware;
 mod models;
 mod services;
+
+#[cfg(test)]
+mod test;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -30,7 +34,7 @@ async fn main() {
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let psp_url =
-        std::env::var("MOCK_PSP_URL").unwrap_or_else(|_| "http://localhost:3001".to_string());
+        std::env::var("MOCK_PSP_URL").unwrap_or_else(|_| "http://127.0.0.1:9090".to_string());
 
     // load up db
     let pool: PgPool = match PgPoolOptions::new()
@@ -56,7 +60,12 @@ async fn main() {
     }
     info!("database fully migrated.");
 
+    let worker_db = pool.clone();
     let state = Arc::new(AppState { db: pool, psp_url });
+
+    tokio::spawn(async move {
+        crate::services::webhook_worker::start_webhook_worker(worker_db).await;
+    });
 
     // setup axum app with state
     let public_routes = Router::new()
@@ -67,6 +76,7 @@ async fn main() {
         .nest("/customers", handlers::customers::routes())
         .nest("/invoices", handlers::invoices::routes())
         .nest("/webhooks", handlers::webhooks::routes())
+        .nest("/payments",handlers::payments::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::auth::auth_middleware,

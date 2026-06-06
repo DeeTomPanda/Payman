@@ -1,8 +1,6 @@
 use axum::{
+    Extension, Json, Router,
     extract::{Path, State},
-    Extension,
-    Json,
-    Router,
     routing::{get, post},
 };
 use std::sync::Arc;
@@ -29,36 +27,38 @@ async fn create_customer(
     // validate
     if req.name.trim().is_empty() {
         return Err(crate::errors::AppError::BadRequest(
-            "name cannot be empty".to_string()
+            "name cannot be empty".to_string(),
         ));
     }
     if req.email.trim().is_empty() {
         return Err(crate::errors::AppError::BadRequest(
-            "email cannot be empty".to_string()
+            "email cannot be empty".to_string(),
         ));
     }
 
-    let customer = sqlx::query_as!(
-        Customer,
+    let id = Uuid::new_v4();
+    let business_id = auth.business.id;
+    let name = req.name.trim();
+    let email = req.email.trim();
+
+    let customer = sqlx::query_as::<_, Customer>(
         r#"
         INSERT INTO customers (id, business_id, name, email)
         VALUES ($1, $2, $3, $4)
         RETURNING *
         "#,
-        Uuid::new_v4(),
-        auth.business.id,
-        req.name.trim(),
-        req.email.trim().to_lowercase()
     )
+    .bind(id)
+    .bind(business_id)
+    .bind(name)
+    .bind(email)
     .fetch_one(&state.db)
     .await
     .map_err(|e| match e {
         sqlx::Error::Database(ref db_err)
-            if db_err.constraint() == Some("idx_customers_email_active") =>
+            if db_err.constraint() == Some("customers_business_id_email_key") =>
         {
-            crate::errors::AppError::Conflict(
-                "customer with this email already exists".to_string()
-            )
+            crate::errors::AppError::Conflict("customer with this email already exists".to_string())
         }
         _ => crate::errors::AppError::Database(e),
     })?;
@@ -66,17 +66,17 @@ async fn create_customer(
     Ok(Json(customer))
 }
 
+
 async fn get_customer(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Customer>> {
-    let customer = sqlx::query_as!(
-        Customer,
+    let customer = sqlx::query_as!(Customer,
         r#"
         SELECT * FROM customers
         WHERE id = $1
-          AND business_id = $2
+        AND business_id = $2
         "#,
         id,
         auth.business.id
@@ -88,12 +88,12 @@ async fn get_customer(
     Ok(Json(customer))
 }
 
+
 async fn list_customers(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
 ) -> AppResult<Json<Vec<Customer>>> {
-    let customers = sqlx::query_as!(
-        Customer,
+    let customers = sqlx::query_as!(Customer,
         r#"
         SELECT * FROM customers
         WHERE business_id = $1

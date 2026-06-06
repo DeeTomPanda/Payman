@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO idempotency_keys\n        (id, key, business_id, request_path, response_status, response_body)\n        VALUES ($1, $2, $3, $4, $5, $6)\n        ON CONFLICT (key, business_id) DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Int4",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4e6ca81d800735f3a099210c02fa1f1120aae545bd6aedd2fc68347336ddec4"
+}

@@ -11,26 +11,25 @@ pub enum InvoiceState {
     Paid,
     Void,
     Uncollectible,
+    Processing,
 }
 
 impl InvoiceState {
-    // state machine logic 
+    // state machine logic
     pub fn can_transition_to(&self, next: &InvoiceState) -> bool {
         match (self, next) {
             (InvoiceState::Draft, InvoiceState::Open) => true,
             (InvoiceState::Draft, InvoiceState::Void) => true,
-            (InvoiceState::Open, InvoiceState::Paid) => true,
+            (InvoiceState::Open, InvoiceState::Processing) => true,
+
+            (InvoiceState::Processing, InvoiceState::Paid) => true,
+            (InvoiceState::Processing, InvoiceState::Open) => true,
+            (InvoiceState::Processing, InvoiceState::Uncollectible) => true,
+            
             (InvoiceState::Open, InvoiceState::Void) => true,
             (InvoiceState::Open, InvoiceState::Uncollectible) => true,
             _ => false, // reject any other case
         }
-    }
-
-    pub fn is_terminal(&self) -> bool {
-        matches!(
-            self,
-            InvoiceState::Paid | InvoiceState::Void | InvoiceState::Uncollectible
-        )
     }
 }
 
@@ -55,7 +54,6 @@ pub struct LineItem {
     pub unit_amount_cents: i64,
     pub created_at: DateTime<Utc>,
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct CreateInvoiceRequest {

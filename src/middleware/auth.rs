@@ -23,11 +23,9 @@ pub async fn auth_middleware(
 
     // hash it
     let key_hash = hash_api_key(&api_key);
-
-    // look up in db
     let business = find_business_by_key(&state.db, &key_hash).await?;
 
-    // attach to request so handlers can use it
+    // finally attach it
     req.extensions_mut().insert(AuthenticatedBusiness { business });
 
     Ok(next.run(req).await)
@@ -70,7 +68,7 @@ async fn find_business_by_key(
         FROM businesses b
         JOIN api_keys k ON k.business_id = b.id
         WHERE k.key_hash = $1
-          AND k.revoked = false
+        AND k.revoked = false
         "#,
         key_hash
     )

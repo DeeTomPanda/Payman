@@ -5,7 +5,6 @@ use tokio::time::{Duration, sleep};
 #[derive(Deserialize)]
 struct ChargeRequest {
     card_token: String,
-    amount_cents: i64,
 }
 
 #[derive(Serialize)]
@@ -58,12 +57,43 @@ async fn charge(Json(req): Json<ChargeRequest>) -> Result<Json<ChargeResponse>, 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
-    let port = std::env::var("PSP_PORT").unwrap_or_else(|_| "3001".to_string());
+    let port = std::env::var("PSP_PORT").unwrap_or_else(|_| "9090".to_string());
     let app = Router::new().route("/charge", post(charge));
 
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port.parse().unwrap_or(3001)));
+    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port.parse().unwrap_or(9090)));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 
     println!("mock PSP running on port {}",port);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+     .with_graceful_shutdown(shutdown_signal())
+     .await.unwrap();
+}
+
+
+async fn shutdown_signal() {
+    // Job 1: Listen for Ctrl+C (Local development)
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    // Job 3: Race them! Whichever happens first wins.
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    println!("shutdown signal received, closing connections gracefully...");
 }
