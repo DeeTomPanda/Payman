@@ -252,14 +252,6 @@ async fn pay_invoice(
                 attempt_id
             );
 
-            sqlx::query!(
-                "UPDATE invoices SET state = 'open', updated_at = NOW() 
-                WHERE id = $1",
-                invoice_id
-            )
-            .execute(&state.db)
-            .await?;
-
             (attempt,true) // unclear response
         }
     };

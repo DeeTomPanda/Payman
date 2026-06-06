@@ -116,15 +116,17 @@ Request B now acquires the lock: reads state as `processing`, `can_transition_to
 
 ### (b) PSP timeout (tok_timeout, 30s)
 
-Our PSP client enforces a 5-second timeout via `tokio::time::timeout`. After 5 seconds with no response:
+Our PSP client enforces a 5-second timeout via 
+`tokio::time::timeout`. After 5 seconds with no response:
 
-- Invoice is reset from `processing` → `open`
-- `payment_attempt` is left as `pending` (records that an attempt was made)
-- Endpoint returns HTTP `202 Accepted` with the pending attempt body
+- Invoice stays in `processing`
+- `payment_attempt` stays as `pending`
+- Endpoint returns HTTP `202 Accepted`
 
-The `202` signals to the caller that the outcome is unknown — distinct from `200` which means a definitive result. The invoice is back to `open` so the caller can safely retry with a **new** idempotency key.
+Both states are intentionally left unchanged — they honestly reflect that a charge is in-flight with unknown outcome. Reverting the invoice to `open` would be a lie — we don't know if the PSP charged the card.
+The `202` signals to the caller that the outcome is unknown. The caller should NOT retry with a new payment — the invoice is `processing` and will reject further payment attempts until the reconciliation worker resolves it.
 
-**Known gap**: there is no reconciliation worker. A `pending` attempt from a timeout is never automatically resolved. A production system would run a background job that polls for `pending` attempts older than a threshold, queries the PSP for outcome, and finalizes accordingly.
+The reconciliation worker queries the PSP for the outcome and resolves both the invoice state and payment attempt atomically in a single transaction. They must never disagree.
 
 ### (c) PSP returns success, service crashes before persisting
 
@@ -134,9 +136,10 @@ The payment attempt is written as `pending` inside the first transaction — bef
 - Payment attempt is stuck as `pending`
 - The customer has been charged
 
-On retry with the **same idempotency key**: the lookup finds the record but `response_status IS NULL` — treated as in-flight/crashed, not replayed. Falls through to a fresh request. The invoice is `processing`, not `open`, so the state check returns 422.
+On retry with the same idempotency key: the record is found with response_status = NULL (written before PSP call). The pending attempt body is returned as cached response. The caller receives the pending attempt and believes the 
+payment is in-flight. The invoice remains stuck in processing until a reconciliation worker resolves it (There is a gap here, more at Production Gap Section). The customer is not charged twice as PSP was called once.
 
-The customer is **not charged twice** — the PSP was called once. But the invoice is stuck. This is a known gap: a recovery worker would scan for `processing` invoices older than 2 hours with a `pending` attempt and either query the PSP for the outcome or mark the attempt failed and reset the invoice to `open`.
+But the invoice is stuck. This is a known gap: a recovery worker would scan for `processing` invoices older than x hours with a `pending` attempt and either query the PSP for the outcome or mark the attempt failed and reset the invoice to `open`.
 
 ### (d) Idempotency key reused with different request body
 
@@ -228,9 +231,11 @@ The tradeoff: `tokio::spawn` is fire-and-forget. If the process crashes immediat
 
 4. **Webhook delivery viewer** — no `GET /webhooks/deliveries` endpoint. Businesses cannot currently inspect failed deliveries via API. The data exists in `webhook_deliveries` but is not exposed.
 
-5. **PSP reconciliation worker** — no background job to resolve `pending` payment attempts. Invoices stuck in `processing` after a crash require manual intervention. Described in production gaps.
+5. **PSP reconciliation worker** — no background job to resolve `pending` payment attempts after a crash. Detailed in Production Gaps.
 
 6. **Stronger webhook replay protection** — current signature covers body only, no timestamp. Replay attacks are possible. Fix is `HMAC(secret, timestamp + "." + body)` with receiver-side timestamp validation.
+
+7. **Discounts and credits** — no discount or coupon system. Negative line item amounts are blocked by CHECK constraint. Production would model discounts as a separate`invoice_discounts` table with positive amounts subtracted from the line item total, keeping all values positive throughout the money path.
 
 ---
 
@@ -238,6 +243,13 @@ The tradeoff: `tokio::spawn` is fire-and-forget. If the process crashes immediat
 
 1. **Observability** — no metrics (Prometheus/StatsD), no distributed tracing (OpenTelemetry). In production every PSP call, state transition, and webhook delivery should emit a span and a counter. Without this, debugging a stuck invoice in production is very hard.
 
-2. **PSP reconciliation worker** — `pending` payment attempts are never automatically resolved. A background job should scan for attempts older than a threshold, query the PSP for outcome, and finalize invoice state accordingly. Without this, a process crash during a payment leaves the invoice stuck in `processing` forever.
+2. **PSP Payment Attempt reconciliation worker** — The PSP call sits outside any transaction — there is an irreducible gap where DB and PSP can disagree. Only a reconciliation job closes it. For each one it finds the associated `pending` payment attempt
+
+The job polls for invoices stuck in `processing` older than x minutes — long enough that no legitimate in-flight request is still running. For each one it finds the associated pending payment attempt and queries the PSP by the stored psp_idempotency_key to learn the true outcome.
+
+There are four outcomes. If the PSP succeeded, the invoice moves to `paid` and the attempt is marked succeeded with the psp_ref stored. If the PSP failed, the invoice reverts to `open` and the attempt is marked failed with the failure code. 
+If the PSP has no record at all, it means the crash happened before the PSP call was made — safe to revert invoice to `open` and mark attempt failed. If the PSP says still pending, leave everything alone and retry on the next run.
+
+Both the invoice state and the payment attempt status are resolved atomically in a single transaction per reconciliation action — they must never disagree.
 
 3. **Rate limiting** — no protection against API abuse. A leaked key could generate unbounded requests. A sliding window rate limiter per `api_key_id` (Redis) is needed before this handles real traffic.
