@@ -24,13 +24,13 @@ services:
     environment:
       - DATABASE_URL=postgres://payman:payman@postgres:5432/payman
       - RUST_LOG=info
-      - MOCK_PSP_URL=http://payman-mock_psp-1:9090
+      - MOCK_PSP_URL=http://mock-psp:9090
     depends_on:
       postgres:
         condition: service_healthy
     command: ["./Payman"]
 
-  mock_psp:
+  mock-psp:
     build:
       context: .
       dockerfile: Dockerfile

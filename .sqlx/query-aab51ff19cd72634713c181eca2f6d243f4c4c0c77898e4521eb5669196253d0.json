@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE idempotency_keys\n                SET response_body = $1,response_status = $2, updated_at = NOW()\n                WHERE key = $3 AND business_id = $4 AND invoice_id = $5\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Int4",
+        "Text",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aab51ff19cd72634713c181eca2f6d243f4c4c0c77898e4521eb5669196253d0"
+}

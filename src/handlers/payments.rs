@@ -42,11 +42,12 @@ async fn pay_invoice(
     let existing = sqlx::query!(
         r#"
         SELECT response_body FROM idempotency_keys
-        WHERE key = $1 AND business_id = $2
+        WHERE key = $1 AND business_id = $2 AND invoice_id = $3
         AND created_at > NOW() - INTERVAL '24 hours'
         "#,
         idempotency_key,
-        auth.business.id
+        auth.business.id,
+        invoice_id
     )
     .fetch_optional(&state.db)
     .await?;
@@ -122,13 +123,13 @@ async fn pay_invoice(
     sqlx::query!(
         r#"
         INSERT INTO idempotency_keys
-        (id, key, business_id, request_path, response_status, response_body)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (key, business_id) DO NOTHING
+        (id, key, business_id, invoice_id, request_path, response_status, response_body)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
         Uuid::new_v4(),
         idempotency_key,
         auth.business.id,
+        invoice_id,
         format!("/invoices/{}/pay", invoice_id),
         0,
         pending_body
@@ -182,12 +183,13 @@ async fn pay_invoice(
                 r#"
                 UPDATE idempotency_keys
                 SET response_body = $1,response_status = $2, updated_at = NOW()
-                WHERE key = $3 AND business_id = $4
+                WHERE key = $3 AND business_id = $4 AND invoice_id= $5
                 "#,
                 response_body,
                 200,
                 idempotency_key,
                 auth.business.id,
+                invoice_id
             )
             .execute(&mut *tx2)
             .await?;
@@ -204,7 +206,7 @@ async fn pay_invoice(
                     tracing::error!("webhook dispatch failed: {}", e);
                 }
             });
-            (updated)
+            updated
         }
 
         PspResult::Failed { code } => {
@@ -246,12 +248,13 @@ async fn pay_invoice(
                 r#"
                 UPDATE idempotency_keys
                 SET response_body = $1,response_status = $2, updated_at = NOW()
-                WHERE key = $3 AND business_id = $4
+                WHERE key = $3 AND business_id = $4 AND invoice_id = $5
                 "#,
                 response_body,
                 200,
                 idempotency_key,
                 auth.business.id,
+                invoice_id
             )
             .execute(&mut *tx2)
             .await?;
@@ -272,7 +275,7 @@ async fn pay_invoice(
                     tracing::error!("webhook dispatch failed: {}", e);
                 }
             });
-            (updated)
+            updated
         }
 
         // timeout or network error
@@ -291,17 +294,18 @@ async fn pay_invoice(
                 r#"
                 UPDATE idempotency_keys
                 SET response_body = $1,response_status = $2, updated_at = NOW()
-                WHERE key = $3 AND business_id = $4
+                WHERE key = $3 AND business_id = $4 AND invoice_id = $5
                 "#,
                 response_body,
                 202,
                 idempotency_key,
                 auth.business.id,
+                invoice_id
             )
             .execute(&state.db)
             .await?;
 
-            (attempt)
+            attempt
         }
     };
 
