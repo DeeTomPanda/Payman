@@ -214,6 +214,44 @@ Server always computes `total_cents` from line items. Any client-supplied total 
 
 ---
 
+### Edit Invoice
+`PATCH /invoices/:id`
+
+Updates a draft invoice. Only invoices in `draft` state can be edited. Once finalized to `open`, the invoice is immutable — void it and create a new one to make changes.
+
+Both fields are optional — omit either to leave it unchanged.
+
+**Request**
+```json
+{
+  "due_date": "2026-12-31",
+  "line_items": [
+    {
+      "description": "Consulting — February",
+      "quantity": 3,
+      "unit_amount_cents": 50000
+    }
+  ]
+}
+```
+
+| Field | Type | Rules |
+|-------|------|-------|
+| `due_date` | date | `YYYY-MM-DD`, optional |
+| `line_items` | array | optional — if provided, replaces all existing line items |
+| `line_items[].description` | string | non-empty |
+| `line_items[].quantity` | integer | > 0 |
+| `line_items[].unit_amount_cents` | integer | > 0, in USD cents |
+
+If `line_items` is provided, `total_cents` is recomputed from the new items. Existing line items are replaced wholesale — partial updates to individual line items are not supported.
+
+**Response `200`** — same shape as Create Invoice response (invoice + line_items)
+
+**Errors**
+- `400` — quantity ≤ 0, unit_amount_cents ≤ 0, or computed total ≤ 0
+- `404` — invoice not found or belongs to a different business
+- `422` — invoice is not in `draft` state
+
 ### Get Invoice
 `GET /invoices/:id`
 

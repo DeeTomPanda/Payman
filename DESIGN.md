@@ -40,7 +40,7 @@
 
 **idempotency_keys**
 - `id` UUID PK, `key` TEXT, `business_id` FK, `response_status` INT nullable, `response_body` JSONB, `updated_at` TIMESTAMPTZ, `created_AT` TIMESTAMPZ
-- `UNIQUE(key, business_id)` — keys are scoped per business. Business A's key `"pay-123"` does not conflict with Business B's `"pay-123"`.
+- `UNIQUE(key, business_id, invoice_id)` — keys are scoped per business and invoice. Business A's key "pay-123" for invoice X does not conflict with the same key used for invoice Y, or with Business B's "pay-123"..
 - `response_status` is nullable. `NULL` means the request started but the server crashed before the PSP responded. Only records with `response_status IS NOT NULL` are replayed. This prevents a crashed in-flight request from being replayed as a stale pending response forever.
 - Index on `(key, business_id)` — created automatically by the unique constraint.
 
