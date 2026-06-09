@@ -5,6 +5,7 @@ use std::time::Duration;
 #[derive(Debug, Serialize)]
 pub struct PspChargeRequest {
     pub card_token: String,
+    pub attempt_id: String,
     pub amount_cents: i64,
 }
 
@@ -25,6 +26,7 @@ pub enum PspResult {
 
 pub async fn call_psp(
     psp_url: &str,
+    attempt_id:String,
     card_token: &str,
     amount_cents: i64,
 ) -> PspResult {
@@ -36,6 +38,7 @@ pub async fn call_psp(
             .post(format!("{}/charge", psp_url))
             .json(&PspChargeRequest {
                 card_token: card_token.to_string(),
+                attempt_id,
                 amount_cents,
             })
             .send(),

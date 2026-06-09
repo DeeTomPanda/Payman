@@ -23,38 +23,38 @@
 - Index on `business_id` for `LIST /customers`.
 
 **invoices**
-- `id` UUID PK, `business_id` FK, `customer_id` FK, `state` ENUM, `total_cents` BIGINT, `due_date` DATE
+- `id` UUID PK, `business_id` FK, `customer_id` FK, `state` ENUM, `total_cents` BIGINT, `due_date` DATE `created_at` TIMESTAMPZ `updated_at` TIMESTAMPZ
 - `total_cents` computed server-side from line items. Client-supplied total is never trusted.
 - Composite index on `(business_id, state)` — leading column is `business_id` because every query is scoped to a business first. `state` alone has poor selectivity (6 values). A single-column index on `state` would be ignored by the planner.
 - Known gap: no `CHECK (total_cents > 0)` at DB level. Enforced in handler only.
 
 **invoice_line_items**
-- `id` UUID PK, `invoice_id` FK, `description` TEXT, `quantity` INT CHECK (> 0), `unit_amount_cents` BIGINT CHECK (> 0)
+- `id` UUID PK, `invoice_id` FK, `description` TEXT, `quantity` INT CHECK (> 0), `unit_amount_cents` BIGINT CHECK (> 0), `created_at` TIMESTAMPZ
 - Constraints enforced at DB level. `quantity` and `unit_amount_cents` cannot be zero or negative.
 - Index on `invoice_id` for fetching line items with an invoice.
 
 **payment_attempts**
-- `id` UUID PK, `invoice_id` FK, `status` ENUM (pending/succeeded/failed), `card_token` TEXT, `psp_reference` TEXT nullable, `failure_code` TEXT nullable
+- `id` UUID PK, `invoice_id` FK, `status` ENUM (pending/succeeded/failed), `card_token` TEXT, `psp_reference` TEXT nullable, `failure_code` TEXT nullable, `retry_count` INT, `next_retry_at` TIMESTAMPZ, `created_at` TIMESTAMPZ, `updated_at` TIMESTAMPZ
 - Created as `pending` before the PSP call. This records that a charge was attempted even if the PSP never responds. Every attempt is kept regardless of outcome — full audit trail.
 - Index on `invoice_id`.
 
 **idempotency_keys**
-- `id` UUID PK, `key` TEXT, `business_id` FK, `response_status` INT nullable, `response_body` JSONB, `updated_at` TIMESTAMPTZ
+- `id` UUID PK, `key` TEXT, `business_id` FK, `response_status` INT nullable, `response_body` JSONB, `updated_at` TIMESTAMPTZ, `created_AT` TIMESTAMPZ
 - `UNIQUE(key, business_id)` — keys are scoped per business. Business A's key `"pay-123"` does not conflict with Business B's `"pay-123"`.
 - `response_status` is nullable. `NULL` means the request started but the server crashed before the PSP responded. Only records with `response_status IS NOT NULL` are replayed. This prevents a crashed in-flight request from being replayed as a stale pending response forever.
 - Index on `(key, business_id)` — created automatically by the unique constraint.
 
 **webhook_endpoints**
-- `id` UUID PK, `business_id` FK, `url` TEXT, `secret` TEXT, `active` BOOL
+- `id` UUID PK, `business_id` FK, `url` TEXT, `secret` TEXT, `active` BOOL, `created_at` TIMESTAMPZ
 - Secret generated at creation (`whsec_{uuid}`), used for HMAC signing. Never regenerated — rotation requires creating a new endpoint.
 
 **webhook_deliveries**
-- `id` UUID PK, `webhook_endpoint_id` FK, `event_type` TEXT, `payload` JSONB, `status` ENUM (pending/delivered/failed), `attempt_count` INT, `next_retry_at` TIMESTAMPTZ
+- `id` UUID PK, `webhook_endpoint_id` FK, `event_type` TEXT, `payload` JSONB, `status` ENUM (pending/delivered/failed), `attempt_count` INT, `next_retry_at` TIMESTAMPTZ, `created_at` TIMESTAMPZ, `updated_at` TIMESTAMPZ
 - Acts as a job queue for the webhook worker. Index on `(status, next_retry_at)` so the worker can efficiently poll for due deliveries.
 
 ### At 100x scale
 - Partition `invoices` and `payment_attempts` by `business_id` — largest tables, most queries are already scoped by business.
-- Move `webhook_deliveries` off Postgres entirely into a dedicated queue (SQS, Redis Streams). Polling a DB table as a job queue works at small scale but becomes a bottleneck — the worker query hits the index constantly and competes with write traffic.
+- Move `webhook_deliveries` and `payment_attempts` off Postgres entirely into a dedicated queue (SQS, Redis Streams). Polling a DB table as a job queue works at small scale but becomes a bottleneck — the worker query hits the index constantly and competes with write traffic.
 - Add read replicas — all `GET` endpoints can go to a replica. Writes stay on primary.
 - Cache `api_keys` lookups in Redis with a ~60s TTL. Every single request currently does a DB lookup on `key_hash`. At high volume this is a hot row that benefits from an in-memory cache.
 - Add `PgBouncer` in front of Postgres. Current pool is `max_connections: 5` — fine for a demo but a pooler is required at scale.
@@ -107,7 +107,7 @@ Both requests enter a transaction and attempt `SELECT ... FOR UPDATE` on the inv
 
 Request A proceeds: state is `open`, transitions to `processing`, inserts a `pending` payment attempt, inserts the idempotency key with `response_status = NULL`, commits.
 
-Request B now acquires the lock: reads state as `processing`, `can_transition_to(Processing)` returns false, returns 422. PSP is never called for B.
+Request B now acquires the lock: reads state as `processing`, a strict check for state as `open` returns false, returns 422. PSP is never called for B.
 
 **Guarantee**: the `FOR UPDATE` row-level lock. Only one transaction can hold it at a time. The invoice row is the mutex.
 
@@ -134,9 +134,21 @@ The payment attempt is written as `pending` inside the first transaction — bef
 - The customer has been charged
 
 On retry with the same idempotency key: the record is found with response_status = NULL (written before PSP call). The pending attempt body is returned as cached response. The caller receives the pending attempt and believes the 
-payment is in-flight. The invoice remains stuck in processing until a reconciliation worker resolves it (There is a gap here, more at Production Gap Section). The customer is not charged twice as PSP was called once.
+payment is in-flight. The invoice remains stuck in processing until a reconciliation worker resolves it The customer is not charged twice as PSP was called once.
 
-But the invoice is stuck. This is a known gap: a recovery worker would scan for `processing` invoices older than x hours with a `pending` attempt and either query the PSP for the outcome or mark the attempt failed and reset the invoice to `open`.
+### Retry policy
+
+Exponential backoff. Delay formula: `2^attempt_count minutes`.
+
+| Attempt | Delay after previous failure |
+|---------|------------------------------|
+| 1 | immediate |
+| 2 | 2 minutes |
+| 3 | 4 minutes |
+| 4 | 8 minutes |
+| 5 (final) | 16 minutes |
+
+Each attempt times out after 5 seconds. A non-2xx response or connection failure does not count as failure. Keeps on retrying until a definite result is obtained from the PSP or until it crosses the 24 hour limit after which the payment attempt is marked as `failed` and the invoice is reverted to `open`.
 
 ### (d) Idempotency key reused with different request body
 
@@ -153,7 +165,8 @@ We do not return an error. Returning 422 on body mismatch is an alternative, but
 `SELECT ... FOR UPDATE` was chosen over the alternatives:
 
 FOR UPDATE was chosen because the invoice row is a shared resource modified by multiple handlers — /pay, /void, /finalize. Any of these running concurrently on the same invoice could cause data mismatches. FOR UPDATE ensures only one handler holds the invoice at a time regardless of which operation it is. 
-Advisory locks would be an equivalent alternative — lock on the invoice ID integer, same mutual exclusion, slightly more explicit. Status-conditional and optimistic approaches only protect against concurrent /pay calls but not against /void racing with /pay mid-flight.
+Advisory locks would be an equivalent alternative — lock on the invoice ID integer, same mutual exclusion, slightly more explicit. 
+Status-conditional and optimistic approaches only protect against concurrent /pay calls but not against /void racing with /pay mid-flight.
 
 ---
 
@@ -228,25 +241,14 @@ The tradeoff: `tokio::spawn` is fire-and-forget. If the process crashes immediat
 
 4. **Webhook delivery viewer** — no `GET /webhooks/deliveries` endpoint. Businesses cannot currently inspect failed deliveries via API. The data exists in `webhook_deliveries` but is not exposed.
 
-5. **PSP reconciliation worker** — no background job to resolve `pending` payment attempts after a crash. Detailed in Production Gaps.
+5. **Stronger webhook replay protection** — current signature covers body only, no timestamp. Replay attacks are possible. Fix is `HMAC(secret, timestamp + "." + body)` with receiver-side timestamp validation.
 
-6. **Stronger webhook replay protection** — current signature covers body only, no timestamp. Replay attacks are possible. Fix is `HMAC(secret, timestamp + "." + body)` with receiver-side timestamp validation.
-
-7. **Discounts and credits** — no discount or coupon system. Negative line item amounts are blocked by CHECK constraint. Production would model discounts as a separate`invoice_discounts` table with positive amounts subtracted from the line item total, keeping all values positive throughout the money path.
+6. **Discounts and credits** — no discount or coupon system. Negative line item amounts are blocked by CHECK constraint. Production would model discounts as a separate`invoice_discounts` table with positive amounts subtracted from the line item total, keeping all values positive throughout the money path.
 
 ---
 
 ## 7. Production Readiness Gaps
 
 1. **Observability** — no metrics (Prometheus/StatsD), no distributed tracing (OpenTelemetry). In production every PSP call, state transition, and webhook delivery should emit a span and a counter. Without this, debugging a stuck invoice in production is very hard.
-
-2. **PSP Payment Attempt reconciliation worker** — The PSP call sits outside any transaction — there is an irreducible gap where DB and PSP can disagree. Only a reconciliation job closes it. For each one it finds the associated `pending` payment attempt
-
-The job polls for invoices stuck in `processing` older than x minutes — long enough that no legitimate in-flight request is still running. For each one it finds the associated pending payment attempt and queries the PSP by the stored psp_idempotency_key to learn the true outcome.
-
-There are four outcomes. If the PSP succeeded, the invoice moves to `paid` and the attempt is marked succeeded with the psp_ref stored. If the PSP failed, the invoice reverts to `open` and the attempt is marked failed with the failure code. 
-If the PSP has no record at all, it means the crash happened before the PSP call was made — safe to revert invoice to `open` and mark attempt failed. If the PSP says still pending, leave everything alone and retry on the next run.
-
-Both the invoice state and the payment attempt status are resolved atomically in a single transaction per reconciliation action — they must never disagree.
 
 3. **Rate limiting** — no protection against API abuse. A leaked key could generate unbounded requests. A sliding window rate limiter per `api_key_id` (Redis) is needed before this handles real traffic.

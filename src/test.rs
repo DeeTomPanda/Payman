@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use sqlx::PgPool;
+    use sqlx::Row;
     use uuid::Uuid;
 
     async fn get_pool() -> PgPool {
@@ -12,11 +13,11 @@ mod tests {
 
     async fn setup_business(pool: &PgPool) -> (Uuid, String) {
         let business_id = Uuid::new_v4();
-        sqlx::query!(
-            "INSERT INTO businesses (id, name) VALUES ($1, $2)",
-            business_id,
-            format!("Test Business {}", business_id)
+        sqlx::query(
+            "INSERT INTO businesses (id, name) VALUES ($1, $2)"
         )
+        .bind(&business_id)
+        .bind(format!("Test Business {}", business_id))
         .execute(pool)
         .await
         .unwrap();
@@ -29,14 +30,14 @@ mod tests {
             hex::encode(hasher.finalize())
         };
 
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO api_keys (id, business_id, key_hash, key_prefix)
-             VALUES ($1, $2, $3, $4)",
-            Uuid::new_v4(),
-            business_id,
-            key_hash,
-            &raw_key[..16]
+             VALUES ($1, $2, $3, $4)"
         )
+        .bind(Uuid::new_v4())
+        .bind(&business_id)
+        .bind(&key_hash)
+        .bind(&raw_key[..16])
         .execute(pool)
         .await
         .unwrap();
@@ -46,14 +47,14 @@ mod tests {
 
     async fn setup_customer(pool: &PgPool, business_id: Uuid) -> Uuid {
         let customer_id = Uuid::new_v4();
-        sqlx::query!(
+        sqlx::query(
             "INSERT INTO customers (id, business_id, name, email)
-             VALUES ($1, $2, $3, $4)",
-            customer_id,
-            business_id,
-            "Test Customer",
-            format!("test+{}@example.com", Uuid::new_v4())
+             VALUES ($1, $2, $3, $4)"
         )
+        .bind(&customer_id)
+        .bind(&business_id)
+        .bind("Test Customer")
+        .bind(format!("test+{}@example.com", Uuid::new_v4()))
         .execute(pool)
         .await
         .unwrap();
@@ -62,16 +63,16 @@ mod tests {
 
     async fn setup_open_invoice(pool: &PgPool, business_id: Uuid, customer_id: Uuid) -> Uuid {
         let invoice_id = Uuid::new_v4();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO invoices
                 (id, business_id, customer_id, state, total_cents, due_date)
             VALUES ($1, $2, $3, 'open', 1000, '2026-12-01')
-            "#,
-            invoice_id,
-            business_id,
-            customer_id,
+            "#
         )
+        .bind(&invoice_id)
+        .bind(&business_id)
+        .bind(&customer_id)
         .execute(pool)
         .await
         .unwrap();
@@ -85,37 +86,43 @@ mod tests {
         invoice_id: Option<Uuid>,
     ) {
         if let Some(iid) = invoice_id {
-            sqlx::query!(
-                "DELETE FROM idempotency_keys WHERE request_path LIKE $1",
-                format!("/invoices/{}/pay", iid)
+            sqlx::query(
+                "DELETE FROM idempotency_keys WHERE request_path LIKE $1"
             )
+            .bind(format!("/invoices/{}/pay", iid))
             .execute(pool).await.unwrap();
-            sqlx::query!(
-                "DELETE FROM payment_attempts WHERE invoice_id = $1", iid
+            sqlx::query(
+                "DELETE FROM payment_attempts WHERE invoice_id = $1"
             )
+            .bind(&iid)
             .execute(pool).await.unwrap();
-            sqlx::query!(
-                "DELETE FROM invoice_line_items WHERE invoice_id = $1", iid
+            sqlx::query(
+                "DELETE FROM invoice_line_items WHERE invoice_id = $1"
             )
+            .bind(&iid)
             .execute(pool).await.unwrap();
-            sqlx::query!(
-                "DELETE FROM invoices WHERE id = $1", iid
+            sqlx::query(
+                "DELETE FROM invoices WHERE id = $1"
             )
+            .bind(&iid)
             .execute(pool).await.unwrap();
         }
         if customer_id != Uuid::nil() {
-            sqlx::query!(
-                "DELETE FROM customers WHERE id = $1", customer_id
+            sqlx::query(
+                "DELETE FROM customers WHERE id = $1"
             )
+            .bind(&customer_id)
             .execute(pool).await.unwrap();
         }
-        sqlx::query!(
-            "DELETE FROM api_keys WHERE business_id = $1", business_id
+        sqlx::query(
+            "DELETE FROM api_keys WHERE business_id = $1"
         )
+        .bind(&business_id)
         .execute(pool).await.unwrap();
-        sqlx::query!(
-            "DELETE FROM businesses WHERE id = $1", business_id
+        sqlx::query(
+            "DELETE FROM businesses WHERE id = $1"
         )
+        .bind(&business_id)
         .execute(pool).await.unwrap();
     }
 
@@ -137,26 +144,28 @@ mod tests {
                 let mut tx = pool_clone.begin().await.unwrap();
 
                 // try to lock + transition to processing
-                let invoice = sqlx::query!(
+                let invoice_row = sqlx::query(
                     r#"SELECT state::text as state FROM invoices
-                       WHERE id = $1 FOR UPDATE"#,
-                    invoice_id
+                       WHERE id = $1 FOR UPDATE"#
                 )
+                .bind(&invoice_id)
                 .fetch_one(&mut *tx)
                 .await
                 .unwrap();
 
+                let state: Option<String> = invoice_row.get("state");
+
                 // only open invoices can proceed
-                if invoice.state.as_deref() != Some("open") {
+                if state.as_deref() != Some("open") {
                     tx.rollback().await.unwrap();
                     return false;
                 }
 
                 // transition to processing
-                sqlx::query!(
-                    "UPDATE invoices SET state = 'processing' WHERE id = $1",
-                    invoice_id
+                sqlx::query(
+                    "UPDATE invoices SET state = 'processing' WHERE id = $1"
                 )
+                .bind(&invoice_id)
                 .execute(&mut *tx)
                 .await
                 .unwrap();
@@ -165,10 +174,10 @@ mod tests {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
                 // transition to paid
-                sqlx::query!(
-                    "UPDATE invoices SET state = 'paid' WHERE id = $1",
-                    invoice_id
+                sqlx::query(
+                    "UPDATE invoices SET state = 'paid' WHERE id = $1"
                 )
+                .bind(&invoice_id)
                 .execute(&mut *tx)
                 .await
                 .unwrap();
@@ -195,16 +204,18 @@ mod tests {
         );
 
         // invoice must be paid
-        let invoice = sqlx::query!(
-            "SELECT state::text as state FROM invoices WHERE id = $1",
-            invoice_id
+        let invoice_row = sqlx::query(
+            "SELECT state::text as state FROM invoices WHERE id = $1"
         )
+        .bind(&invoice_id)
         .fetch_one(&pool)
         .await
         .unwrap();
 
+        let state: Option<String> = invoice_row.get("state");
+
         assert_eq!(
-            invoice.state.as_deref(),
+            state.as_deref(),
             Some("paid"),
             "invoice must be paid after successful concurrent payment"
         );
@@ -228,63 +239,68 @@ mod tests {
         });
 
         // store idempotency key as if payment was already processed
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO idempotency_keys
                 (id, key, business_id, request_path, response_status, response_body)
             VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-            Uuid::new_v4(),
-            idempotency_key,
-            business_id,
-            "/invoices/test/pay",
-            200i32,
-            fake_response
+            "#
         )
+        .bind(Uuid::new_v4())
+        .bind(&idempotency_key)
+        .bind(&business_id)
+        .bind("/invoices/test/pay")
+        .bind(200i32)
+        .bind(&fake_response)
         .execute(&pool)
         .await
         .unwrap();
 
         // first lookup
-        let result1 = sqlx::query!(
+        let result1 = sqlx::query(
             r#"
             SELECT response_body FROM idempotency_keys
             WHERE key = $1 AND business_id = $2
             AND created_at > NOW() - INTERVAL '24 hours'
-            "#,
-            idempotency_key,
-            business_id
+            "#
         )
+        .bind(&idempotency_key)
+        .bind(&business_id)
         .fetch_optional(&pool)
         .await
         .unwrap();
 
         // second lookup — same key
-        let result2 = sqlx::query!(
+        let result2 = sqlx::query(
             r#"
             SELECT response_body FROM idempotency_keys
             WHERE key = $1 AND business_id = $2
             AND created_at > NOW() - INTERVAL '24 hours'
-            "#,
-            idempotency_key,
-            business_id
+            "#
         )
+        .bind(&idempotency_key)
+        .bind(&business_id)
         .fetch_optional(&pool)
         .await
         .unwrap();
 
         assert!(result1.is_some(), "first lookup must find the key");
         assert!(result2.is_some(), "second lookup must find same key");
+
+        let body1 = result1.unwrap().get::<serde_json::Value, _>("response_body");
+        let body2 = result2.unwrap().get::<serde_json::Value, _>("response_body");
+
         assert_eq!(
-            result1.unwrap().response_body,
-            result2.unwrap().response_body,
+            body1,
+            body2,
             "both lookups must return identical response — no second PSP call"
         );
 
         // cleanup
-        sqlx::query!(
-            "DELETE FROM idempotency_keys WHERE key = $1", idempotency_key
+        sqlx::query(
+            "DELETE FROM idempotency_keys WHERE key = $1"
         )
+        .bind(&idempotency_key)
         .execute(&pool).await.unwrap();
         cleanup(&pool, business_id, Uuid::nil(), None).await;
     }
@@ -301,76 +317,80 @@ mod tests {
 
         // simulate payment handler:
         // 1. move to processing
-        sqlx::query!(
-            "UPDATE invoices SET state = 'processing' WHERE id = $1",
-            invoice_id
+        sqlx::query(
+            "UPDATE invoices SET state = 'processing' WHERE id = $1"
         )
+        .bind(&invoice_id)
         .execute(&pool)
         .await
         .unwrap();
 
         // 2. insert pending attempt
         let attempt_id = Uuid::new_v4();
-        sqlx::query!(
+        sqlx::query(
             r#"
             INSERT INTO payment_attempts
                 (id, invoice_id, status, card_token)
             VALUES ($1, $2, 'pending', 'tok_timeout')
-            "#,
-            attempt_id,
-            invoice_id
+            "#
         )
+        .bind(&attempt_id)
+        .bind(&invoice_id)
         .execute(&pool)
         .await
         .unwrap();
 
         // 3. simulate timeout 
-        sqlx::query!(
-            "UPDATE invoices SET state = 'open' WHERE id = $1",
-            invoice_id
+        sqlx::query(
+            "UPDATE invoices SET state = 'open' WHERE id = $1"
         )
+        .bind(&invoice_id)
         .execute(&pool)
         .await
         .unwrap();
 
         // assert invoice is back to open — NOT stuck in processing
-        let invoice = sqlx::query!(
-            "SELECT state::text as state FROM invoices WHERE id = $1",
-            invoice_id
+        let invoice_row = sqlx::query(
+            "SELECT state::text as state FROM invoices WHERE id = $1"
         )
+        .bind(&invoice_id)
         .fetch_one(&pool)
         .await
         .unwrap();
 
+        let state: Option<String> = invoice_row.get("state");
+
         assert_eq!(
-            invoice.state.as_deref(),
+            state.as_deref(),
             Some("open"),
             "invoice must revert to open after PSP timeout, not stuck in processing"
         );
 
         // assert attempt is pending — not failed
-        let attempt = sqlx::query!(
-            "SELECT status::text as status FROM payment_attempts WHERE id = $1",
-            attempt_id
+        let attempt_row = sqlx::query(
+            "SELECT status::text as status FROM payment_attempts WHERE id = $1"
         )
+        .bind(&attempt_id)
         .fetch_one(&pool)
         .await
         .unwrap();
 
+        let status: Option<String> = attempt_row.get("status");
+
         assert_eq!(
-            attempt.status.as_deref(),
+            status.as_deref(),
             Some("pending"),
             "attempt must stay pending after timeout, not marked failed"
         );
 
         // assert invoice can be paid again
         assert_ne!(
-            invoice.state.as_deref(),
+            state.as_deref(),
             Some("paid"),
             "invoice must not be paid after timeout"
         );
         assert_ne!(
-            invoice.state.as_deref(),
+            state.as_deref(),
             Some("void"),
             "invoice must not be void after timeout"
         );

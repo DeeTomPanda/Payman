@@ -63,6 +63,12 @@ pub struct CreateInvoiceRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct EditInvoiceRequest {
+    pub due_date: Option<NaiveDate>,
+    pub line_items: Option<Vec<CreateLineItemRequest>>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateLineItemRequest {
     pub description: String,
     pub quantity: i32,

@@ -140,7 +140,7 @@ async fn pay_invoice(
     tx.commit().await?;
 
     // call psp after commit
-    let psp_result = call_psp(&state.psp_url, &req.card_token, invoice.total_cents).await;
+    let psp_result = call_psp(&state.psp_url,attempt_id.to_string(), &req.card_token, invoice.total_cents).await;
 
     let result=match psp_result {
         PspResult::Succeeded { psp_ref } => {

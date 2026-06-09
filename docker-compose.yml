@@ -28,6 +28,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      mock-psp:
+        condition: service_healthy
     command: ["./Payman"]
 
   mock-psp:
@@ -36,6 +38,11 @@ services:
       dockerfile: Dockerfile
     environment:
       - PSP_PORT=9090
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:9090/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     command: ["./psp"]
     ports:
       - "9090:9090"

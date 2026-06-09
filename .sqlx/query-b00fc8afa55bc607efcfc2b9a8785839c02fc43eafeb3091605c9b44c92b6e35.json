@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        UPDATE payment_attempts\n                        SET retry_count = retry_count + 1,\n                        next_retry_at = NOW() + make_interval(mins => $1),\n                        updated_at = NOW()\n                        WHERE id = $2\n                        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b00fc8afa55bc607efcfc2b9a8785839c02fc43eafeb3091605c9b44c92b6e35"
+}

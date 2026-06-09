@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            UPDATE payment_attempts\n                            SET status = 'succeeded',\n                            psp_reference = $1,\n                            updated_at = NOW()\n                            WHERE id = $2\n                            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1e39fc99955d776e7c801947e2dae3ce972b237d26f044866607917342bad923"
+}

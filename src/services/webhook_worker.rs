@@ -2,17 +2,15 @@ use sqlx::PgPool;
 use std::time::Duration;
 use crate::services::webhook::deliver;
 
-pub async fn start_webhook_worker(db: PgPool) {
-    tracing::info!("starting webhook retry worker...");
-
-    loop {
-        // run every 30 seconds
-        tokio::time::sleep(Duration::from_secs(30)).await;
-
-        if let Err(e) = process_pending_deliveries(&db).await {
-            tracing::error!("webhook worker error: {}", e);
+pub fn start_webhook_worker(db: PgPool) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            if let Err(e) = process_pending_deliveries(&db).await {
+                tracing::error!("webhook worker error: {}", e);
+            }
         }
-    }
+    });
 }
 
 async fn process_pending_deliveries(db: &PgPool) -> anyhow::Result<()> {
@@ -57,3 +55,4 @@ async fn process_pending_deliveries(db: &PgPool) -> anyhow::Result<()> {
 
     Ok(())
 }
+

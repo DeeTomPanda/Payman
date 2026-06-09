@@ -7,7 +7,6 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber;
 
-
 mod errors;
 mod handlers;
 mod middleware;
@@ -62,11 +61,13 @@ async fn main() {
 
     let worker_db = pool.clone();
     let state = Arc::new(AppState { db: pool, psp_url });
+    let worker_state = state.clone();
+    
+    // workers
+    crate::services::payment_status_worker::start(worker_state);
+    crate::services::webhook_worker::start_webhook_worker(worker_db);
 
-    tokio::spawn(async move {
-        crate::services::webhook_worker::start_webhook_worker(worker_db).await;
-    });
-
+    // state still available here for the router
     // setup axum app with state
     let public_routes = Router::new()
         .route("/health", get(|| async { "OK" }))
@@ -76,7 +77,7 @@ async fn main() {
         .nest("/customers", handlers::customers::routes())
         .nest("/invoices", handlers::invoices::routes())
         .nest("/webhooks", handlers::webhooks::routes())
-        .nest("/payments",handlers::payments::routes())
+        .nest("/payments", handlers::payments::routes())
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::auth::auth_middleware,

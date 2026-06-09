@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, invoice_id FROM payment_attempts\n        WHERE status = 'pending'\n        AND created_at <= NOW() - INTERVAL '24 hours'\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "invoice_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bf5051a5f477358f4db63786a3951796c2ea0461a077b0bca69c5d3edb633928"
+}
