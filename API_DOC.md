@@ -338,7 +338,8 @@ Requires an `Idempotency-Key` header. Reusing the same key within 24 hours retur
 
 **Response `202 Accepted` — PSP timed out or network error**
 
-Same body shape, `status` will be `"pending"`. The invoice has been reset to `open`. Use a **new** `Idempotency-Key` to retry.
+Same body shape, `status` will be `"pending"`. The invoice remains in `processing` state while the reconciliation worker attempts to determine the outcome. 
+Do not retry immediately  the worker will resolve the attempt automatically.If the attempt expires after 24 hours without resolution, the invoice is reverted to `open` and you may retry with a new `Idempotency-Key`.
 
 **`status` values**
 
@@ -360,6 +361,34 @@ Same body shape, `status` will be `"pending"`. The invoice has been reset to `op
 - `400` — missing `Idempotency-Key` header, or empty `card_token`
 - `404` — invoice not found
 - `422` — invoice is not in `open` state (already paid, void, processing, etc.)
+
+
+## Payment Reconciliation
+
+When a payment attempt times out or encounters a network error, the invoice is 
+left in `processing` state and the attempt in `pending`. A background worker 
+automatically reconciles these using exponential backoff.
+
+### Retry Schedule
+
+| Attempt | Delay |
+|---------|-------|
+| 1 | 1 minute |
+| 2 | 2 minutes |
+| 3 | 4 minutes |
+| 4 | 8 minutes |
+| 5+ | 16 minutes (capped) |
+
+After 24 hours the attempt is marked `failed` with `failure_code: reconciliation_timeout` 
+and the invoice is reverted to `open`.
+
+### What the worker does
+
+- Polls `GET /charge/:attempt_id` on the PSP
+- `200 succeeded` → marks attempt `succeeded`, invoice `paid`, fires `invoice.paid` webhook
+- `200 failed` → marks attempt `failed`, invoice reverted to `open`, fires `invoice.payment_failed` webhook  
+- `404` → PSP still processing, schedules next retry per backoff table
+- Timeout / network error → leaves as pending, retries next tick
 
 ---
 
@@ -509,3 +538,56 @@ No authentication required.
 ```
 OK
 ```
+
+# Mock PSP (External Payment Service)
+
+Base URL: `http://localhost:9090`
+
+This service simulates an external payment processor used by the Invoice service.
+
+## POST /charge
+
+Creates a simulated payment attempt.
+
+### Request
+
+````json
+{
+  "card_token": "tok_success | tok_insufficient_funds | tok_card_declined | tok_timeout | tok_network_error",
+  "attempt_id": "uuid"
+}
+````
+
+````markdown
+### Response `200` — charge completed
+```json
+{
+  "status": "succeeded | failed",
+  "psp_ref": "uuid",
+  "code": "insufficient_funds | card_declined | null"
+}
+```
+
+### Response `500` — network error (tok_network_error)
+
+### Response `400` — unknown card token
+
+### Notes
+- `tok_timeout` sleeps 30 seconds before responding — your service must time out before this
+- `psp_ref` is present only when `status` is `succeeded`
+
+## GET /charge/:attempt_id
+
+Retrieves the outcome of a previously submitted charge. Used by the reconciliation worker to check the result of timed-out payment attempts.
+
+### Response `200` — outcome available
+```json
+{
+  "status": "succeeded",
+  "psp_ref": "uuid",
+  "code": null
+}
+```
+
+### Response `404` — outcome not yet available
+The charge is still being processed. Retry later.

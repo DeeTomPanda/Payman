@@ -3,7 +3,7 @@
 A minimal billing API built with Rust (Axum), PostgreSQL, and a mock PSP.
 
 ## Demo Video
-[Link to be added]
+(https://drive.google.com/file/d/1I6Vp2X1Gy8mUngCq6gje-GNUZPb64Je4/view?usp=sharing)
 
 ## Stack
 - Rust + Axum
