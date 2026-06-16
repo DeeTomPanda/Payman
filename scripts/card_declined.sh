@@ -17,7 +17,7 @@ export CUSTOMER_ID=$(curl -s -X POST http://localhost:8080/customers \
 echo "Customer: $CUSTOMER_ID"
 
 # 3. Create invoice
-export INVOICE_ID=$(curl -s -X POST http://localhost:8080/invoices \
+response=$(curl -s -X POST http://localhost:8080/invoices \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{
@@ -26,20 +26,28 @@ export INVOICE_ID=$(curl -s -X POST http://localhost:8080/invoices \
     \"line_items\": [
       {\"description\": \"Consulting\", \"quantity\": 2, \"unit_amount_cents\": 5000}
     ]
-  }" | jq -r '.invoice.id')
+  }")
 
-echo "Invoice: $INVOICE_ID"
+echo "$response" | jq .
+
+export INVOICE_ID=$(echo "$response" | jq -r '.invoice.id')
+export INVOICE_VERSION=$(echo "$response" | jq -r '.invoice.versioning')
 
 # 4. Finalize invoice (draft → open)
 curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/finalize \
-  -H "Authorization: Bearer $API_KEY" | jq .
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"versioning": 1}' | jq .
 
 # 5. Simulate 
 curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: pay-001" \
-  -d '{"card_token": "tok_card_declined"}' | jq .
+  -d '{
+        "card_token": "tok_card_declined",
+        "versioning":2
+      }' | jq .
 
 
 

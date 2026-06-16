@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                UPDATE invoices\n                SET state = $1,\n                updated_at = NOW()\n                WHERE id = $2\n                ",
+  "query": "\n                UPDATE invoices\n                SET state = $1, updated_at = NOW(), versioning=versioning+1\n                WHERE id = $2\n                ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -25,5 +25,5 @@
     },
     "nullable": []
   },
-  "hash": "570bd0cf0c5ca9e760e91786bf2cfc1827df9b08a192c0fabb53ab133eaff476"
+  "hash": "560c5457aa39c34b9b6dbea3eac68424b34c985c294ed0c865505c59888bb1cb"
 }

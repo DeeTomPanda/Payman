@@ -13,7 +13,8 @@ use crate::{
     errors::{AppError, AppResult},
     middleware::auth::AuthenticatedBusiness,
     models::invoice::{
-        CreateInvoiceRequest, EditInvoiceRequest, Invoice, InvoiceResponse, InvoiceState, LineItem,
+        CreateInvoiceRequest, EditInvoiceRequest, FinalizeInvoiceRequest, Invoice, InvoiceResponse,
+        InvoiceState, LineItem, VoidInvoiceRequest,
     },
 };
 
@@ -70,7 +71,9 @@ async fn create_invoice(
 
     let today = Utc::now().date_naive();
     if req.due_date < today {
-        return Err(AppError::BadRequest("due_date cannot be in the past".to_string()));
+        return Err(AppError::BadRequest(
+            "due_date cannot be in the past".to_string(),
+        ));
     }
 
     let mut tx = state.db.begin().await?;
@@ -80,17 +83,18 @@ async fn create_invoice(
     let invoice = sqlx::query_as!(
         Invoice,
         r#"
-        INSERT INTO invoices (id, business_id, customer_id, state, total_cents, due_date)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO invoices (id, business_id, customer_id, state, total_cents, due_date,versioning)
+        VALUES ($1, $2, $3, $4, $5, $6,$7)
         RETURNING id, business_id, customer_id, state as "state: InvoiceState",
-        total_cents, due_date, created_at, updated_at
+        total_cents, due_date, created_at, updated_at, versioning
         "#,
         invoice_id,
         auth.business.id,
         req.customer_id,
         InvoiceState::Draft as InvoiceState,
         total_cents,
-        req.due_date
+        req.due_date,
+        1
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -165,6 +169,28 @@ async fn edit_invoice(
         }
     }
 
+    // optimistic locking here
+    let result = sqlx::query!(
+        r#"
+    UPDATE invoices
+    SET updated_at = NOW(), versioning = versioning +1
+    WHERE id = $1
+    AND versioning = $2
+      AND state = $3
+    "#,
+        id,
+        req.versioning,
+        InvoiceState::Draft as InvoiceState
+    )
+    .execute(&state.db)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "invoice is being processed, try later!"
+        )));
+    }
+
     // only 1 transaction to edit an invoice
     let mut tx = state.db.begin().await?;
 
@@ -173,7 +199,6 @@ async fn edit_invoice(
         SELECT id, state as "state: InvoiceState"
         FROM invoices
         WHERE id = $1 AND business_id = $2
-        FOR UPDATE
         "#,
         id,
         auth.business.id
@@ -279,7 +304,7 @@ async fn edit_invoice(
         Invoice,
         r#"
         SELECT id, business_id, customer_id, state as "state: InvoiceState",
-        total_cents, due_date, created_at, updated_at
+        total_cents, due_date, created_at, updated_at,versioning
         FROM invoices
         WHERE id = $1
         "#,
@@ -305,7 +330,7 @@ async fn get_invoice(
         Invoice,
         r#"
         SELECT id, business_id, customer_id, state as "state: InvoiceState",
-        total_cents, due_date, created_at, updated_at
+        total_cents, due_date, created_at, updated_at,versioning
         FROM invoices
         WHERE id = $1 AND business_id = $2
         "#,
@@ -341,7 +366,7 @@ async fn list_invoices(
                 Invoice,
                 r#"
                 SELECT id, business_id, customer_id, state as "state: InvoiceState",
-                total_cents, due_date, created_at, updated_at
+                total_cents, due_date, created_at, updated_at,versioning
                 FROM invoices
                 WHERE business_id = $1 AND state = $2
                 ORDER BY created_at DESC
@@ -357,7 +382,7 @@ async fn list_invoices(
                 Invoice,
                 r#"
                 SELECT id, business_id, customer_id, state as "state: InvoiceState",
-                total_cents, due_date, created_at, updated_at
+                total_cents, due_date, created_at, updated_at,versioning
                 FROM invoices
                 WHERE business_id = $1
                 ORDER BY created_at DESC
@@ -376,25 +401,31 @@ async fn finalize_invoice(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
     Path(id): Path<Uuid>,
+    Json(req): Json<FinalizeInvoiceRequest>,
 ) -> AppResult<Json<Invoice>> {
     let mut tx = state.db.begin().await?;
-    let invoice = sqlx::query!(
+
+    let invoice = sqlx::query_as!(
+        Invoice,
         r#"
-        SELECT state as "state: InvoiceState"
+        SELECT id, business_id, customer_id,
+        state as "state: InvoiceState",
+        total_cents, due_date, created_at, updated_at, versioning
         FROM invoices
         WHERE id = $1 AND business_id = $2
         "#,
         id,
         auth.business.id
     )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    .fetch_one(&mut *tx)
+    .await?;
 
-    if !invoice.state.can_transition_to(&InvoiceState::Open) {
+    let target_state = InvoiceState::Open;
+
+    if !invoice.state.can_transition_to(&target_state) {
         return Err(AppError::InvalidStateTransition(format!(
-            "cannot finalize invoice in '{}' state",
-            serde_json::to_string(&invoice.state).unwrap_or_default()
+            "cannot transition invoice from {:?} to {:?}",
+            invoice.state, target_state
         )));
     }
 
@@ -402,29 +433,36 @@ async fn finalize_invoice(
         Invoice,
         r#"
         UPDATE invoices
-        SET state = $1, updated_at = NOW()
-        WHERE id = $2 AND business_id = $3
+        SET state = $1,
+            updated_at = NOW(),
+            versioning = versioning + 1
+        WHERE id = $2
+            AND business_id = $3
+            AND versioning = $4
         RETURNING id, business_id, customer_id,
         state as "state: InvoiceState",
-        total_cents, due_date, created_at, updated_at
+        total_cents, due_date, created_at, updated_at, versioning
         "#,
-        InvoiceState::Open as InvoiceState,
+        target_state as InvoiceState,
         id,
-        auth.business.id
+        auth.business.id,
+        req.versioning
     )
-    .fetch_one(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::Conflict("stale invoice version".into()))?;
 
-    // fire webhook
+    tx.commit().await?;
+
     let db = state.db.clone();
     let bid = auth.business.id;
+
     tokio::spawn(async move {
-        if let Err(e) = crate::services::webhook::dispatch(&db, bid, id, "invoice.created").await {
+        if let Err(e) = crate::services::webhook::dispatch(&db, bid, id, "invoice.finalized").await
+        {
             tracing::error!("webhook dispatch failed: {}", e);
         }
     });
-
-    tx.commit().await?;
 
     Ok(Json(updated))
 }
@@ -433,6 +471,7 @@ async fn void_invoice(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
     Path(id): Path<Uuid>,
+    Json(req): Json<VoidInvoiceRequest>,
 ) -> AppResult<Json<Invoice>> {
     let mut tx = state.db.begin().await?;
 
@@ -440,19 +479,22 @@ async fn void_invoice(
         r#"
         SELECT state as "state: InvoiceState"
         FROM invoices
-        WHERE id = $1 AND business_id = $2
+        WHERE id = $1 AND business_id = $2 AND versioning = $3
         "#,
         id,
-        auth.business.id
+        auth.business.id,
+        req.versioning
     )
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    if !invoice.state.can_transition_to(&InvoiceState::Void) {
+    let target_state = InvoiceState::Open;
+
+    if !invoice.state.can_transition_to(&target_state) {
         return Err(AppError::InvalidStateTransition(format!(
-            "cannot void invoice in '{}' state",
-            serde_json::to_string(&invoice.state).unwrap_or_default()
+            "cannot transition invoice from {:?} to {:?}",
+            invoice.state, target_state
         )));
     }
 
@@ -460,24 +502,23 @@ async fn void_invoice(
         Invoice,
         r#"
         UPDATE invoices
-        SET state = $1, updated_at = NOW()
-        WHERE id = $2 AND business_id = $3
+        SET state = $1, updated_at = NOW(), versioning=versioning+1
+        WHERE id = $2 AND business_id = $3 
+        AND versioning = $4
         RETURNING id, business_id, customer_id,
         state as "state: InvoiceState",
-        total_cents, due_date, created_at, updated_at
+        total_cents, due_date, created_at, updated_at, versioning
         "#,
         InvoiceState::Void as InvoiceState,
         id,
-        auth.business.id
+        auth.business.id,
+        req.versioning
     )
-    .fetch_one(&mut *tx)
-    .await?;
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(AppError::Conflict("stale invoice version".into()))?;
 
     tx.commit().await?;
 
     Ok(Json(updated))
-}
-
-fn truncate_to_minute(dt: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
-    dt.with_second(0).unwrap().with_nanosecond(0).unwrap()
 }

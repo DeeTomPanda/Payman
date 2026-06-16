@@ -23,29 +23,45 @@ CUSTOMER_ID=$(echo $CUSTOMER | jq -r '.id')
 
 echo "Customer Created: $CUSTOMER_ID"
 
-INVOICE=$(curl -s -X POST http://localhost:8080/invoices \
+
+# 2. Create invoice
+response=$(curl -s -X POST http://localhost:8080/invoices \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"customer_id\": \"$CUSTOMER_ID\", \"due_date\": \"2026-12-01\", \"line_items\": [{\"description\": \"test\", \"quantity\": 1, \"unit_amount_cents\": 1000}]}")
+  -d "{
+    \"customer_id\": \"$CUSTOMER_ID\",
+    \"due_date\": \"2026-12-01\",
+    \"line_items\": [
+      {\"description\": \"Consulting\", \"quantity\": 2, \"unit_amount_cents\": 5000}
+    ]
+  }")
 
-INVOICE_ID=$(echo $INVOICE | jq -r '.invoice.id // .id')
+echo "$response" | jq .
 
-echo "Invoice Created: $INVOICE_ID"
+export INVOICE_ID=$(echo "$response" | jq -r '.invoice.id')
+export INVOICE_VERSION=$(echo "$response" | jq -r '.invoice.versioning')
 
-# 2. Finalize Invoice (Move from Draft to Open)
+echo "Invoice: $INVOICE_ID"
+echo "Versioning: $INVOICE_VERSION"
+
+
+# 4. Finalize invoice (draft → open)
 curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/finalize \
-  -H "Authorization: Bearer $API_KEY" > /dev/null
-
-echo "Firing $CONCURRENT_REQUESTS concurrent payment requests..."
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"versioning": 1}' | jq .
 
 # 3. Fire 5 concurrent pay requests with DIFFERENT idempotency keys
 for ((i=1; i<=CONCURRENT_REQUESTS; i++)); do
-  curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
+  response=$(curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
     -H "Idempotency-Key: concurrent-test-$i" \
-    -d '{"card_token": "tok_success"}' \
-    > /tmp/pay_result_$i.json &
+    -d '{
+          "card_token": "tok_success",
+          "versioning": 2
+        }')
+    echo $response > /tmp/pay_result_$i.json &
 done
 
 # Wait for all background curl processes to finish
@@ -64,6 +80,20 @@ for ((i=1; i<=CONCURRENT_REQUESTS; i++)); do
     SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
   fi
 done
+
+CONFLICT_COUNT=0
+for ((i=1; i<=CONCURRENT_REQUESTS; i++)); do
+    ERROR=$(cat /tmp/pay_result_$i.json | jq -r '.error.code // empty')
+    if echo "$ERROR" | grep -q "conflict"; then
+        CONFLICT_COUNT=$((CONFLICT_COUNT + 1))
+    fi
+done
+
+echo "conflicts" $CONFLICT_COUNT
+if [ $((SUCCESS_COUNT + CONFLICT_COUNT)) -ne $CONCURRENT_REQUESTS ]; then
+    echo "FAIL: Unexpected responses found"
+    exit 1
+fi
 
 # 5. Assert exactly one succeeded
 if [ "$SUCCESS_COUNT" -eq 1 ]; then

@@ -6,7 +6,6 @@ use std::time::Duration;
 pub struct PspChargeRequest {
     pub card_token: String,
     pub attempt_id: String,
-    pub amount_cents: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,8 +26,7 @@ pub enum PspResult {
 pub async fn call_psp(
     psp_url: &str,
     attempt_id:String,
-    card_token: &str,
-    amount_cents: i64,
+    card_token: &str
 ) -> PspResult {
     let client = reqwest::Client::new();
 
@@ -38,8 +36,7 @@ pub async fn call_psp(
             .post(format!("{}/charge", psp_url))
             .json(&PspChargeRequest {
                 card_token: card_token.to_string(),
-                attempt_id,
-                amount_cents,
+                attempt_id
             })
             .send(),
     )

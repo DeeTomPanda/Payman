@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, business_id, customer_id, state as \"state: InvoiceState\",\n                total_cents, due_date, created_at, updated_at\n                FROM invoices\n                WHERE business_id = $1\n                ORDER BY created_at DESC\n                ",
+  "query": "\n        UPDATE invoices\n        SET state = $1, updated_at = NOW(), versioning=versioning+1\n        WHERE id = $2 AND business_id = $3 \n        AND versioning = $4\n        RETURNING id, business_id, customer_id,\n        state as \"state: InvoiceState\",\n        total_cents, due_date, created_at, updated_at, versioning\n        ",
   "describe": {
     "columns": [
       {
@@ -56,11 +56,33 @@
         "ordinal": 7,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "versioning",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        {
+          "Custom": {
+            "name": "invoice_state",
+            "kind": {
+              "Enum": [
+                "draft",
+                "open",
+                "processing",
+                "paid",
+                "void",
+                "uncollectible"
+              ]
+            }
+          }
+        },
+        "Uuid",
+        "Uuid",
+        "Int4"
       ]
     },
     "nullable": [
@@ -71,8 +93,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "312dbb8bb9d61b03da3ef2764323bb1f0cae11a72d19795502b89d3aa2f6f150"
+  "hash": "7bf32a4bcb448459c6adfce40448a79d5725607c3ec24fd6d200e52049fe345e"
 }

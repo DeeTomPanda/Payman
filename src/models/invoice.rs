@@ -23,7 +23,7 @@ impl InvoiceState {
             (InvoiceState::Open, InvoiceState::Processing) => true,
 
             (InvoiceState::Processing, InvoiceState::Paid) => true,
-            (InvoiceState::Processing, InvoiceState::Open) => true,
+            (InvoiceState::Processing, InvoiceState::Open) => false,
             (InvoiceState::Processing, InvoiceState::Uncollectible) => true,
             
             (InvoiceState::Open, InvoiceState::Void) => true,
@@ -43,6 +43,7 @@ pub struct Invoice {
     pub due_date: NaiveDate,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub versioning: i32
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -66,6 +67,7 @@ pub struct CreateInvoiceRequest {
 pub struct EditInvoiceRequest {
     pub due_date: Option<NaiveDate>,
     pub line_items: Option<Vec<CreateLineItemRequest>>,
+    pub versioning:i32
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,4 +81,19 @@ pub struct CreateLineItemRequest {
 pub struct InvoiceResponse {
     pub invoice: Invoice,
     pub line_items: Vec<LineItem>,
+}
+
+
+#[derive(Debug, Deserialize)]
+pub struct FinalizeInvoiceRequest {
+    pub due_date: Option<NaiveDate>,
+    pub line_items: Option<Vec<CreateLineItemRequest>>,
+    pub versioning:i32
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VoidInvoiceRequest {
+    pub due_date: Option<NaiveDate>,
+    pub line_items: Option<Vec<CreateLineItemRequest>>,
+    pub versioning:i32
 }

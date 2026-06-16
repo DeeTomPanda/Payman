@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT state as \"state: InvoiceState\"\n        FROM invoices\n        WHERE id = $1 AND business_id = $2\n        ",
+  "query": "\n        SELECT state as \"state: InvoiceState\"\n        FROM invoices\n        WHERE id = $1 AND business_id = $2 AND versioning = $3\n        ",
   "describe": {
     "columns": [
       {
@@ -26,12 +26,13 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Int4"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "6f1b1c5f77042c3fbd4f0849e986473ba761fbb11dd66c45b7f25300fe438d75"
+  "hash": "b5f9d0b7d4d3898a672119309d25d70e7832452759c71d6cd1a0baf69df3d5a6"
 }

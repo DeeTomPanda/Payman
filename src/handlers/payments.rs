@@ -59,43 +59,30 @@ async fn pay_invoice(
         return Ok(Json(attempt));
     }
 
-    // use pessimistic lock
     let mut tx = state.db.begin().await?;
 
-    let invoice = sqlx::query!(
+    // optimistic locking
+    let result = sqlx::query!(
         r#"
-        SELECT id, state as "state: InvoiceState", total_cents, business_id
-        FROM invoices
-        WHERE id = $1 AND business_id = $2
-        FOR UPDATE
-        "#,
-        invoice_id,
-        auth.business.id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::NotFound)?;
-
-    if invoice.state != InvoiceState::Open {
-        return Err(AppError::InvalidStateTransition(format!(
-            "cannot pay an invoice in '{:?}' state, must be 'open'",
-            invoice.state
-        )));
-    }
-
-    // update invoice to processing now
-    sqlx::query!(
-        r#"
-                UPDATE invoices
-                SET state = $1, 
-                updated_at = NOW()
-                WHERE id = $2
-                "#,
+    UPDATE invoices
+    SET state = $1, updated_at = NOW(), versioning = versioning + 1
+    WHERE id = $2 
+      AND state = $3
+      AND versioning = $4
+    "#,
         InvoiceState::Processing as InvoiceState,
-        invoice_id
+        invoice_id,
+        InvoiceState::Open as InvoiceState,
+        req.versioning
     )
     .execute(&mut *tx)
     .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::Conflict(format!(
+            "another transaction in progress, try later!"
+        )));
+    }
 
     // create payment attempt as pending
     let attempt_id = Uuid::new_v4();
@@ -140,9 +127,9 @@ async fn pay_invoice(
     tx.commit().await?;
 
     // call psp after commit
-    let psp_result = call_psp(&state.psp_url,attempt_id.to_string(), &req.card_token, invoice.total_cents).await;
+    let psp_result = call_psp(&state.psp_url, attempt_id.to_string(), &req.card_token).await;
 
-    let result=match psp_result {
+    let result = match psp_result {
         PspResult::Succeeded { psp_ref } => {
             // update attempt + invoice in one transaction
             let mut tx2 = state.db.begin().await?;
@@ -164,10 +151,10 @@ async fn pay_invoice(
             .fetch_one(&mut *tx2)
             .await?;
 
-            sqlx::query!(
+            let updated_result = sqlx::query!(
                 r#"
                 UPDATE invoices
-                SET state = $1, updated_at = NOW()
+                SET state = $1, updated_at = NOW(), versioning=versioning+1
                 WHERE id = $2
                 "#,
                 InvoiceState::Paid as InvoiceState,
@@ -175,6 +162,13 @@ async fn pay_invoice(
             )
             .execute(&mut *tx2)
             .await?;
+
+            if updated_result.rows_affected() == 0 {
+                tx2.rollback().await?;
+                return Err(AppError::Conflict(
+                    "invoice state changed unexpectedly".to_string(),
+                ));
+            }
 
             let response_body =
                 serde_json::to_value(&updated).map_err(|e| AppError::Internal(anyhow!(e)))?;
@@ -228,11 +222,12 @@ async fn pay_invoice(
             .fetch_one(&mut *tx2)
             .await?;
 
-            sqlx::query!(
+            let updated_result = sqlx::query!(
                 r#"
                 UPDATE invoices
                 SET state = $1,
-                updated_at = NOW()
+                updated_at = NOW(),
+                versioning=versioning+1
                 WHERE id = $2
                 "#,
                 InvoiceState::Open as InvoiceState,
@@ -240,6 +235,13 @@ async fn pay_invoice(
             )
             .execute(&mut *tx2)
             .await?;
+
+            if updated_result.rows_affected() == 0 {
+                tx2.rollback().await?;
+                return Err(AppError::Conflict(
+                    "invoice state changed unexpectedly".to_string(),
+                ));
+            }
 
             let response_body =
                 serde_json::to_value(&updated).map_err(|e| AppError::Internal(anyhow!(e)))?;
@@ -285,8 +287,7 @@ async fn pay_invoice(
                 attempt_id
             );
 
-
-              // store idempotency key with final response
+            // store idempotency key with final response
             let response_body =
                 serde_json::to_value(&attempt).map_err(|e| AppError::Internal(anyhow!(e)))?;
 
@@ -308,7 +309,6 @@ async fn pay_invoice(
             attempt
         }
     };
-
 
     Ok(Json(result))
 }

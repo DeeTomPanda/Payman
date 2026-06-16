@@ -28,4 +28,5 @@ pub struct PaymentAttempt {
 pub struct PayInvoiceRequest {
     #[validate(length(min = 1, message = "card token cannot be empty"))]
     pub card_token: String,
+    pub versioning:i32
 }

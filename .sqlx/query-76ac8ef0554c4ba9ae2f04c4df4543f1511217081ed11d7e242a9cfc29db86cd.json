@@ -1,10 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                            UPDATE invoices\n                            SET state = $1, updated_at = NOW()\n                            WHERE id = $2\n                            ",
+  "query": "\n    UPDATE invoices\n    SET updated_at = NOW(), versioning = versioning +1\n    WHERE id = $1\n    AND versioning = $2\n      AND state = $3\n    ",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Int4",
         {
           "Custom": {
             "name": "invoice_state",
@@ -19,11 +21,10 @@
               ]
             }
           }
-        },
-        "Uuid"
+        }
       ]
     },
     "nullable": []
   },
-  "hash": "08c387074bde0f2b12bf972df30bcd42104cfc148a327b8af116076c48311da1"
+  "hash": "76ac8ef0554c4ba9ae2f04c4df4543f1511217081ed11d7e242a9cfc29db86cd"
 }

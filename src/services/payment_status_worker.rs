@@ -162,10 +162,11 @@ async fn reconcile_attempt(
                             r#"
                             UPDATE invoices
                             SET state = $1, updated_at = NOW()
-                            WHERE id = $2
+                            WHERE id = $2 AND state = $3
                             "#,
                             InvoiceState::Paid as InvoiceState,
-                            invoice_id
+                            invoice_id,
+                            InvoiceState::Processing as InvoiceState
                             )
                             .execute(&mut *tx)
                             .await?;
@@ -210,10 +211,11 @@ async fn reconcile_attempt(
                             r#"
                             UPDATE invoices
                             SET state = $1, updated_at = NOW()
-                            WHERE id = $2
+                            WHERE id = $2 AND state = $3
                             "#,
                             InvoiceState::Open as InvoiceState,
-                            invoice_id
+                            invoice_id,
+                            InvoiceState::Processing as InvoiceState
                             )
                             .execute(&mut *tx)
                             .await?;
