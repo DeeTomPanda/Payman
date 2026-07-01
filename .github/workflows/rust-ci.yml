@@ -35,7 +35,7 @@ jobs:
         run: docker compose down -v
 
       - name: Start services
-        run: docker compose up -d postgres mock-psp
+        run: docker compose up -d 
 
       - name: Wait for Postgres
         run: |
