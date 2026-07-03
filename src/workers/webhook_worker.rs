@@ -1,6 +1,6 @@
 use sqlx::PgPool;
 use std::time::Duration;
-use crate::services::webhook::deliver;
+use crate::workers::webhook::deliver;
 
 pub fn start_webhook_worker(db: PgPool) {
     tokio::spawn(async move {

@@ -1,27 +1,7 @@
 
-use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use crate::models::payment::{PspChargeRequest,PspResult,PspChargeResponse};
 
-#[derive(Debug, Serialize)]
-pub struct PspChargeRequest {
-    pub card_token: String,
-    pub attempt_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PspChargeResponse {
-    pub status: String,
-    pub psp_ref: Option<String>,
-    pub code: Option<String>,
-}
-
-#[derive(Debug)]
-pub enum PspResult {
-    Succeeded { psp_ref: String },
-    Failed { code: String },
-    TimedOut,
-    NetworkError,
-}
 
 pub async fn call_psp(
     psp_url: &str,

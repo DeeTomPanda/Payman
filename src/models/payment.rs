@@ -30,3 +30,24 @@ pub struct PayInvoiceRequest {
     pub card_token: String,
     pub versioning:i32
 }
+
+#[derive(Debug, Serialize)]
+pub struct PspChargeRequest {
+    pub card_token: String,
+    pub attempt_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PspChargeResponse {
+    pub status: String,
+    pub psp_ref: Option<String>,
+    pub code: Option<String>,
+}
+
+#[derive(Debug)]
+pub enum PspResult {
+    Succeeded { psp_ref: String },
+    Failed { code: String },
+    TimedOut,
+    NetworkError,
+}

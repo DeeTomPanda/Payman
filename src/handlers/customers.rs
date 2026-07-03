@@ -11,6 +11,9 @@ use crate::{
     errors::AppResult,
     middleware::auth::AuthenticatedBusiness,
     models::customer::{CreateCustomerRequest, Customer},
+    services::customers::create_customer as create_customer_service,
+    services::customers::get_customer as get_customer_service,
+    services::customers::list_customers as list_customers_service,
 };
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -36,73 +39,26 @@ async fn create_customer(
         ));
     }
 
-    let id = Uuid::new_v4();
-    let business_id = auth.business.id;
-    let name = req.name.trim();
-    let email = req.email.trim();
-
-    let customer = sqlx::query_as::<_, Customer>(
-        r#"
-        INSERT INTO customers (id, business_id, name, email)
-        VALUES ($1, $2, $3, $4)
-        RETURNING *
-        "#,
-    )
-    .bind(id)
-    .bind(business_id)
-    .bind(name)
-    .bind(email)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|e| match e {
-        sqlx::Error::Database(ref db_err)
-            if db_err.constraint() == Some("customers_business_id_email_key") =>
-        {
-            crate::errors::AppError::Conflict("customer with this email already exists".to_string())
-        }
-        _ => crate::errors::AppError::Database(e),
-    })?;
+    let customer = create_customer_service(&state.db, req, auth.business.id).await?;
 
     Ok(Json(customer))
 }
-
 
 async fn get_customer(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<Customer>> {
-    let customer = sqlx::query_as!(Customer,
-        r#"
-        SELECT * FROM customers
-        WHERE id = $1
-        AND business_id = $2
-        "#,
-        id,
-        auth.business.id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(crate::errors::AppError::NotFound)?;
+    let customer = get_customer_service(&state.db, id, auth.business.id).await?;
 
     Ok(Json(customer))
 }
-
 
 async fn list_customers(
     State(state): State<Arc<AppState>>,
     Extension(auth): Extension<AuthenticatedBusiness>,
 ) -> AppResult<Json<Vec<Customer>>> {
-    let customers = sqlx::query_as!(Customer,
-        r#"
-        SELECT * FROM customers
-        WHERE business_id = $1
-        ORDER BY created_at DESC
-        "#,
-        auth.business.id
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let customers = list_customers_service(&state.db, auth.business.id).await?;
 
     Ok(Json(customers))
 }

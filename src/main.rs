@@ -12,6 +12,8 @@ mod handlers;
 mod middleware;
 mod models;
 mod services;
+mod utils;
+mod workers;
 
 #[cfg(test)]
 mod test;
@@ -64,8 +66,8 @@ async fn main() {
     let worker_state = state.clone();
     
     // workers
-    crate::services::payment_status_worker::start(worker_state);
-    crate::services::webhook_worker::start_webhook_worker(worker_db);
+    crate::workers::payment_status_worker::start(worker_state);
+    crate::workers::webhook_worker::start_webhook_worker(worker_db);
 
     // state still available here for the router
     // setup axum app with state

@@ -4,6 +4,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::{
+    workers::webhook::dispatch,
     AppState,
     models::{invoice::InvoiceState},
 };
@@ -174,11 +175,11 @@ async fn reconcile_attempt(
                             tx.commit().await?;
 
                             // fire webhook
-                            let db = state.db.clone();
+                            let db2 = state.db.clone();
                             let bid = get_business_id(&state.db, invoice_id).await?;
                             tokio::spawn(async move {
-                                if let Err(e) = crate::services::webhook::dispatch(
-                                    &db,
+                                if let Err(e) = dispatch(
+                                    &db2,
                                     bid,
                                     invoice_id,
                                     "invoice.paid",
@@ -222,11 +223,11 @@ async fn reconcile_attempt(
 
                             tx.commit().await?;
 
-                            let db = state.db.clone();
+                            let db2 = state.db.clone();
                             let bid = get_business_id(&state.db, invoice_id).await?;
                             tokio::spawn(async move {
-                                if let Err(e) = crate::services::webhook::dispatch(
-                                    &db,
+                                if let Err(e) = dispatch(
+                                    &db2,
                                     bid,
                                     invoice_id,
                                     "invoice.payment_failed",
