@@ -1,7 +1,7 @@
 .PHONY: db-up db-down db-reset db-migrate db-prepare help test test-all test-decline test-ident-idempotency 
 		test-insufficient-funds test-network-error test-success test-timeout test-concurrent
 
-CONCURRENCY_LIMIT ?= 5
+CONCURRENCY_LIMIT ?= 10
 
 help:
 	@echo "Available targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  test-success             - Run the successful payment test script"
 	@echo "  test-timeout             - Run the timeout test script"
 	@echo "  test-concurrent            - Run the timeout test script"
+	@echo "  test-rate-limiter          - Run the rate limiter test script"
 
 db-up:
 	docker compose up -d postgres
@@ -72,7 +73,13 @@ test-concurrent:
 	@./scripts/concurrent.sh ${CONCURRENCY_LIMIT}
 	@echo "\n"
 
+test-rate-limiter:
+	@echo "Testing rate limiter scenario"
+	@./scripts/rate_limiter.sh
+	@echo "\n"
+
 test-all:
+	@echo "Running all tests"
 	@$(MAKE) test-decline
 	@sleep 5
 	@$(MAKE) test-ident-idempotency
@@ -86,6 +93,8 @@ test-all:
 	@$(MAKE) test-timeout
 	@sleep 5
 	@$(MAKE) test-concurrent
+	sleep 5
+	@$(MAKE) test-rate-limiter
 	@echo "All tests complete"
 
 

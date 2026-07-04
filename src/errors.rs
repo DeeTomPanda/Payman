@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde_json::json;
 use thiserror::Error;
@@ -28,31 +28,19 @@ pub enum AppError {
 
     #[error("internal error")]
     Internal(#[from] anyhow::Error),
+
+    #[error("too many requests")]
+    TooManyRequests,
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code, message) = match &self {
-            AppError::NotFound => (
-                StatusCode::NOT_FOUND,
-                "not_found",
-                self.to_string(),
-            ),
-            AppError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                self.to_string(),
-            ),
-            AppError::BadRequest(msg) => (
-                StatusCode::BAD_REQUEST,
-                "bad_request",
-                msg.clone(),
-            ),
-            AppError::Conflict(msg) => (
-                StatusCode::CONFLICT,
-                "conflict",
-                msg.clone(),
-            ),
+            AppError::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, "conflict", msg.clone()),
+            AppError::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests", self.to_string()),
             AppError::InvalidStateTransition(msg) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "invalid_state_transition",

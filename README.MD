@@ -6,8 +6,23 @@ A minimal billing API built with Rust (Axum), PostgreSQL, and a mock PSP.
 ## Stack
 - Rust + Axum
 - PostgreSQL + sqlx
+- Redis(rate limiting)
 - Mock PSP (separate Rust binary)
 - Docker Compose
+
+## System Design
+
+- PostgreSQL handles invoices, payments, and idempotency storage
+- Redis is used for:
+  - Sliding window rate limiting (per IP / business)
+  - High-frequency request protection before DB execution
+- PSP is mocked as an external service with deterministic responses
+
+## Guarantees
+
+- Exactly-once payment attempt creation (idempotency keys)
+- At-most-one successful payment per invoice (optimistic locking)
+- Rate-limited API protection using Redis
 
 ## Running
 
@@ -100,6 +115,7 @@ make test-timeout              # tok_timeout — invoice reverts to open
 make test-network-error        # tok_network_error — invoice reverts to open
 make test-concurrent           # N concurrent pay requests, only one succeeds
 make test-ident-idempotency    # same key twice, same response
+make test-rate-limiter         # deny requests with 429 if above 100 req/min 
 ```
 
 Also available:

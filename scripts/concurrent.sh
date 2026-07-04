@@ -3,7 +3,7 @@
 # Ensure clean slate for temporary files
 rm -f /tmp/pay_result_*.json
 
-CONCURRENT_REQUESTS=${1:-5}
+CONCURRENT_REQUESTS=${1:-10}
 
 # 1. Setup - Create business, customer, invoice
 BUSINESS=$(curl -s -X POST http://localhost:8080/businesses \
@@ -51,7 +51,7 @@ curl -s -X POST http://localhost:8080/invoices/$INVOICE_ID/finalize \
   -H "Content-Type: application/json" \
   -d '{"versioning": 1}' | jq .
 
-# 3. Fire 5 concurrent pay requests with DIFFERENT idempotency keys
+# 3. Fire 10 concurrent pay requests with DIFFERENT idempotency keys
 for ((i=1; i<=CONCURRENT_REQUESTS; i++)); do
   response=$(curl -s -X POST http://localhost:8080/payments/$INVOICE_ID/pay \
     -H "Authorization: Bearer $API_KEY" \

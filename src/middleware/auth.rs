@@ -1,3 +1,5 @@
+use crate::models::business::Business;
+use crate::{AppState, errors::AppError};
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -5,8 +7,6 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
-use crate::{errors::AppError, AppState};
-use crate::models::business::Business;
 
 #[derive(Clone, Debug)]
 pub struct AuthenticatedBusiness {
@@ -26,7 +26,8 @@ pub async fn auth_middleware(
     let business = find_business_by_key(&state.db, &key_hash).await?;
 
     // finally attach it
-    req.extensions_mut().insert(AuthenticatedBusiness { business });
+    req.extensions_mut()
+        .insert(AuthenticatedBusiness { business });
 
     Ok(next.run(req).await)
 }
@@ -45,7 +46,8 @@ fn extract_api_key(req: &Request) -> Result<String, AppError> {
         .ok_or(AppError::Unauthorized)?
         .to_string();
 
-    if key.is_empty() {
+        // send away fake api keys
+    if !key.starts_with("sk_live_") || key.len() != 40 || key.is_empty() {
         return Err(AppError::Unauthorized);
     }
 
@@ -58,10 +60,7 @@ pub fn hash_api_key(key: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
-async fn find_business_by_key(
-    db: &sqlx::PgPool,
-    key_hash: &str,
-) -> Result<Business, AppError> {
+async fn find_business_by_key(db: &sqlx::PgPool, key_hash: &str) -> Result<Business, AppError> {
     let row = sqlx::query!(
         r#"
         SELECT b.id, b.name, b.created_at

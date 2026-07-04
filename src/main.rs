@@ -1,4 +1,9 @@
-use axum::{Router, routing::get};
+use crate::middleware::{
+    auth::auth_middleware,
+    rate_limiter::{business_rate_limiter_middleware, ip_rate_limiter_middleware},
+};
+use axum::{Router, middleware::from_fn_with_state, routing::get};
+use redis::aio::MultiplexedConnection;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::net::SocketAddr;
@@ -6,7 +11,6 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use tracing_subscriber;
-
 mod errors;
 mod handlers;
 mod middleware;
@@ -22,6 +26,7 @@ mod test;
 pub struct AppState {
     pub db: PgPool,
     pub psp_url: String,
+    pub redis_conn: MultiplexedConnection,
 }
 
 #[tokio::main]
@@ -34,6 +39,7 @@ async fn main() {
     // load up keys
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let redis_url = std::env::var("REDIS_URL").expect("REDIS_URL is to be set!");
     let psp_url =
         std::env::var("MOCK_PSP_URL").unwrap_or_else(|_| "http://127.0.0.1:9090".to_string());
 
@@ -53,6 +59,26 @@ async fn main() {
         }
     };
 
+    // spin up redis
+    let client = match redis::Client::open(redis_url) {
+        Ok(c) => c,
+        Err(e) => {
+            error!("failed to connect to Redis: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Multiplexed here, actaully use connection pool(deadpool-redis) for porduction,
+    // this is a learning project, so we will keep it simple for now
+    // see the differnces and tradeoffs
+    let redis_conn = match client.get_multiplexed_async_connection().await {
+        Ok(c) => c,
+        Err(e) => {
+            error!("failed to connect to Redis: {}", e);
+            std::process::exit(1);
+        }
+    };
+
     // run migrations
     info!("running database migrations...");
     if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
@@ -62,9 +88,13 @@ async fn main() {
     info!("database fully migrated.");
 
     let worker_db = pool.clone();
-    let state = Arc::new(AppState { db: pool, psp_url });
+    let state = Arc::new(AppState {
+        db: pool,
+        psp_url,
+        redis_conn,
+    });
     let worker_state = state.clone();
-    
+
     // workers
     crate::workers::payment_status_worker::start(worker_state);
     crate::workers::webhook_worker::start_webhook_worker(worker_db);
@@ -73,16 +103,25 @@ async fn main() {
     // setup axum app with state
     let public_routes = Router::new()
         .route("/health", get(|| async { "OK" }))
-        .nest("/businesses", handlers::businesses::routes());
+        .nest("/businesses", handlers::businesses::routes())
+        .layer(from_fn_with_state(
+            state.clone(),
+            ip_rate_limiter_middleware,
+        ));
 
     let protected_routes = Router::new()
         .nest("/customers", handlers::customers::routes())
         .nest("/invoices", handlers::invoices::routes())
         .nest("/webhooks", handlers::webhooks::routes())
         .nest("/payments", handlers::payments::routes())
-        .layer(axum::middleware::from_fn_with_state(
+        .layer(from_fn_with_state(
             state.clone(),
-            middleware::auth::auth_middleware,
+            business_rate_limiter_middleware,
+        ))
+        .layer(from_fn_with_state(state.clone(), auth_middleware))
+        .layer(from_fn_with_state(
+            state.clone(),
+            ip_rate_limiter_middleware,
         ));
 
     let app = Router::new()
@@ -95,14 +134,14 @@ async fn main() {
 
     info!("listening on {}", addr);
 
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
 }
 
 async fn shutdown_signal() {
-    // Job 1: Listen for Ctrl+C (Local development)
+    // listen for Ctrl+C (Local development)
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
@@ -120,7 +159,7 @@ async fn shutdown_signal() {
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
 
-    // Job 3: Race them! Whichever happens first wins.
+    // listen for termination signal
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
