@@ -17,13 +17,13 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --requirepass ${REDIS_PASSWORD}
+    command: ["redis-server", "--requirepass", "payman"]
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "payman", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -39,7 +39,14 @@ services:
       - DATABASE_URL=postgres://payman:payman@postgres:5432/payman
       - REDIS_URL=redis://default:payman@redis:6379
       - MOCK_PSP_URL=http://mock-psp:9090
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     depends_on:
+      redis:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       mock-psp:

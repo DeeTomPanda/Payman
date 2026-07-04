@@ -35,9 +35,9 @@ pub async fn create_business(db: &sqlx::PgPool, name: &str) -> AppResult<CreateB
 
     tx.commit().await?;
 
-    return Ok(CreateBusinessResult {
+    Ok(CreateBusinessResult {
         business_id,
         api_key: api_key.raw,
         prefix: api_key.prefix,
-    });
+    })
 }

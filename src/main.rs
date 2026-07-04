@@ -10,7 +10,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::{error, info};
-use tracing_subscriber;
 mod errors;
 mod handlers;
 mod middleware;
@@ -18,9 +17,6 @@ mod models;
 mod services;
 mod utils;
 mod workers;
-
-#[cfg(test)]
-mod test;
 
 #[derive(Clone)]
 pub struct AppState {

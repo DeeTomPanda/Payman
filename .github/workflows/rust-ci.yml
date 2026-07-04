@@ -62,6 +62,15 @@ jobs:
       - name: Build
         run: cargo build --verbose
 
+      - name: Wait for API
+        run: |
+          for i in {1..30}; do
+            curl -f http://127.0.0.1:8080/health && exit 0
+            sleep 1
+          done
+          echo "API not ready"
+          exit 1
+
       - name: Run tests
         env:
           DATABASE_URL: postgres://payman:payman@127.0.0.1:5432/payman

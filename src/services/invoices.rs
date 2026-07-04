@@ -199,9 +199,9 @@ pub async fn edit_invoice(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(AppError::Conflict(format!(
-            "invoice is being processed, try later!"
-        )));
+        return Err(AppError::Conflict(
+            "invoice is being processed, try later!".to_string(),
+        ));
     }
 
     // only 1 transaction to edit an invoice

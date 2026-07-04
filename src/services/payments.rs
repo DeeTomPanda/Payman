@@ -59,9 +59,9 @@ pub async fn pay_invoice(
     .await?;
 
     if result.rows_affected() == 0 {
-        return Err(AppError::Conflict(format!(
-            "another transaction in progress, try later!"
-        )));
+        return Err(AppError::Conflict(
+            "another transaction in progress, try later!".to_string(),
+        ));
     }
 
     // create payment attempt as pending
