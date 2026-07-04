@@ -109,7 +109,7 @@ async fn main() {
     let store: OutcomeStore = Arc::new(Mutex::new(HashMap::new()));
 
     let app = Router::new()
-        .route("/health",get(||async  {"Ok"}))
+        .route("/health", get(|| async { "Ok" }))
         .route("/charge", post(charge))
         .route("/charge/{attempt_id}", get(get_outcome))
         .with_state(store);

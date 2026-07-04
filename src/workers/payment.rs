@@ -1,13 +1,7 @@
-
+use crate::models::payment::{PspChargeRequest, PspChargeResponse, PspResult};
 use std::time::Duration;
-use crate::models::payment::{PspChargeRequest,PspResult,PspChargeResponse};
 
-
-pub async fn call_psp(
-    psp_url: &str,
-    attempt_id:String,
-    card_token: &str
-) -> PspResult {
+pub async fn call_psp(psp_url: &str, attempt_id: String, card_token: &str) -> PspResult {
     let client = reqwest::Client::new();
 
     let result = tokio::time::timeout(
@@ -16,7 +10,7 @@ pub async fn call_psp(
             .post(format!("{}/charge", psp_url))
             .json(&PspChargeRequest {
                 card_token: card_token.to_string(),
-                attempt_id
+                attempt_id,
             })
             .send(),
     )

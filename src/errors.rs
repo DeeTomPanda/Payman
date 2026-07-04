@@ -40,7 +40,11 @@ impl IntoResponse for AppError {
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
             AppError::Conflict(msg) => (StatusCode::CONFLICT, "conflict", msg.clone()),
-            AppError::TooManyRequests => (StatusCode::TOO_MANY_REQUESTS, "too_many_requests", self.to_string()),
+            AppError::TooManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too_many_requests",
+                self.to_string(),
+            ),
             AppError::InvalidStateTransition(msg) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "invalid_state_transition",

@@ -12,8 +12,7 @@ pub struct Customer {
     pub created_at: DateTime<Utc>,
 }
 
-
-#[derive(Debug, Deserialize,Validate)]
+#[derive(Debug, Deserialize, Validate)]
 pub struct CreateCustomerRequest {
     #[validate(length(min = 2, max = 100, message = "name must be 2–100 characters"))]
     pub name: String,

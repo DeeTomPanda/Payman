@@ -46,7 +46,7 @@ fn extract_api_key(req: &Request) -> Result<String, AppError> {
         .ok_or(AppError::Unauthorized)?
         .to_string();
 
-        // send away fake api keys
+    // send away fake api keys
     if !key.starts_with("sk_live_") || key.len() != 40 || key.is_empty() {
         return Err(AppError::Unauthorized);
     }

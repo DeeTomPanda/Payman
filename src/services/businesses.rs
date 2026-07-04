@@ -1,6 +1,6 @@
+use crate::errors::AppResult;
 use crate::utils::api_key::generate_api_key;
 use uuid::Uuid;
-use crate::errors::AppResult;
 
 pub struct CreateBusinessResult {
     pub business_id: Uuid,
@@ -8,10 +8,7 @@ pub struct CreateBusinessResult {
     pub prefix: String,
 }
 
-pub async fn create_business(
-    db: &sqlx::PgPool,
-    name: &str,
-) -> AppResult<CreateBusinessResult> {
+pub async fn create_business(db: &sqlx::PgPool, name: &str) -> AppResult<CreateBusinessResult> {
     let api_key = generate_api_key();
     let business_id = Uuid::new_v4();
 

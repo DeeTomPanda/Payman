@@ -16,4 +16,3 @@ pub struct WebhookEndpoint {
 pub struct CreateWebhookEndpointRequest {
     pub url: String,
 }
-

@@ -3,11 +3,7 @@ use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
-use crate::{
-    workers::webhook::dispatch,
-    AppState,
-    models::{invoice::InvoiceState},
-};
+use crate::{AppState, models::invoice::InvoiceState, workers::webhook::dispatch};
 
 #[derive(Debug, serde::Deserialize)]
 struct PspOutcome {
@@ -63,7 +59,7 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
 
     for attempt in expired {
         warn!("attempt {} expired after 24h, marking failed", attempt.id);
-        let mut tx= state.db.begin().await?; 
+        let mut tx = state.db.begin().await?;
         sqlx::query!(
             r#"
             UPDATE payment_attempts
@@ -92,7 +88,6 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
         tx.commit().await?;
     }
 
-
     Ok(())
 }
 
@@ -106,9 +101,9 @@ async fn reconcile_attempt(
     let resp = tokio::time::timeout(Duration::from_secs(5), reqwest::get(&url)).await;
 
     match resp {
-        Err(_)=>{
-            warn!("timeout occured for attempt {}",attempt_id)
-        }, 
+        Err(_) => {
+            warn!("timeout occured for attempt {}", attempt_id)
+        }
         Ok(Err(e)) => {
             // network error
             warn!("PSP status check failed for attempt {}: {}", attempt_id, e);
@@ -146,28 +141,28 @@ async fn reconcile_attempt(
                     match outcome.status.as_str() {
                         "succeeded" => {
                             sqlx::query!(
-                            r#"
+                                r#"
                             UPDATE payment_attempts
                             SET status = 'succeeded',
                             psp_reference = $1,
                             updated_at = NOW()
                             WHERE id = $2
                             "#,
-                            outcome.psp_ref,
-                            attempt_id
+                                outcome.psp_ref,
+                                attempt_id
                             )
                             .execute(&mut *tx)
                             .await?;
 
                             sqlx::query!(
-                            r#"
+                                r#"
                             UPDATE invoices
                             SET state = $1, updated_at = NOW()
                             WHERE id = $2 AND state = $3
                             "#,
-                            InvoiceState::Paid as InvoiceState,
-                            invoice_id,
-                            InvoiceState::Processing as InvoiceState
+                                InvoiceState::Paid as InvoiceState,
+                                invoice_id,
+                                InvoiceState::Processing as InvoiceState
                             )
                             .execute(&mut *tx)
                             .await?;
@@ -178,13 +173,8 @@ async fn reconcile_attempt(
                             let db2 = state.db.clone();
                             let bid = get_business_id(&state.db, invoice_id).await?;
                             tokio::spawn(async move {
-                                if let Err(e) = dispatch(
-                                    &db2,
-                                    bid,
-                                    invoice_id,
-                                    "invoice.paid",
-                                )
-                                .await
+                                if let Err(e) =
+                                    dispatch(&db2, bid, invoice_id, "invoice.paid").await
                                 {
                                     error!("webhook dispatch failed: {}", e);
                                 }
@@ -195,28 +185,28 @@ async fn reconcile_attempt(
 
                         "failed" => {
                             sqlx::query!(
-                            r#"
+                                r#"
                             UPDATE payment_attempts
                             SET status = 'failed',
                             failure_code = $1,
                             updated_at = NOW()
                             WHERE id = $2
                             "#,
-                            outcome.code,
-                            attempt_id
+                                outcome.code,
+                                attempt_id
                             )
                             .execute(&mut *tx)
                             .await?;
 
                             sqlx::query!(
-                            r#"
+                                r#"
                             UPDATE invoices
                             SET state = $1, updated_at = NOW()
                             WHERE id = $2 AND state = $3
                             "#,
-                            InvoiceState::Open as InvoiceState,
-                            invoice_id,
-                            InvoiceState::Processing as InvoiceState
+                                InvoiceState::Open as InvoiceState,
+                                invoice_id,
+                                InvoiceState::Processing as InvoiceState
                             )
                             .execute(&mut *tx)
                             .await?;
@@ -226,13 +216,8 @@ async fn reconcile_attempt(
                             let db2 = state.db.clone();
                             let bid = get_business_id(&state.db, invoice_id).await?;
                             tokio::spawn(async move {
-                                if let Err(e) = dispatch(
-                                    &db2,
-                                    bid,
-                                    invoice_id,
-                                    "invoice.payment_failed",
-                                )
-                                .await
+                                if let Err(e) =
+                                    dispatch(&db2, bid, invoice_id, "invoice.payment_failed").await
                                 {
                                     error!("webhook dispatch failed: {}", e);
                                 }

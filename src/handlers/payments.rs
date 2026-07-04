@@ -10,9 +10,7 @@ use crate::{
     AppState,
     errors::{AppError, AppResult},
     middleware::auth::AuthenticatedBusiness,
-    models::{
-        payment::{PayInvoiceRequest, PaymentAttempt},
-    },
+    models::payment::{PayInvoiceRequest, PaymentAttempt},
     services::payments::pay_invoice as pay_invoice_service,
 };
 
@@ -40,10 +38,11 @@ async fn pay_invoice(
         &state.db,
         state.psp_url.as_str(),
         invoice_id,
-        auth.business.id,   
+        auth.business.id,
         idempotency_key,
         req,
-    ).await?;
+    )
+    .await?;
 
     Ok(Json(attempt))
 }

@@ -1,8 +1,8 @@
 use crate::{
     errors::{AppError, AppResult},
     models::invoice::{
-        CreateInvoiceRequest, EditInvoiceRequest, FinalizeInvoiceRequest, Invoice,
-        InvoiceState, LineItem, VoidInvoiceRequest,
+        CreateInvoiceRequest, EditInvoiceRequest, FinalizeInvoiceRequest, Invoice, InvoiceState,
+        LineItem, VoidInvoiceRequest,
     },
     workers::webhook::dispatch,
 };
@@ -457,14 +457,12 @@ pub async fn finalize_invoice(
     Ok(updated)
 }
 
-
 pub async fn void_invoice(
     db: &sqlx::PgPool,
     invoice_id: Uuid,
     business_id: Uuid,
     req: VoidInvoiceRequest,
 ) -> AppResult<Invoice> {
-
     let mut tx = db.begin().await?;
 
     let invoice = sqlx::query!(
@@ -511,7 +509,6 @@ pub async fn void_invoice(
     .ok_or(AppError::Conflict("stale invoice version".into()))?;
 
     tx.commit().await?;
-
 
     Ok(updated)
 }

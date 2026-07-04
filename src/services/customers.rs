@@ -1,5 +1,5 @@
+use crate::errors::AppResult;
 use crate::models::customer::{CreateCustomerRequest, Customer};
-use crate::errors::{AppResult};
 use uuid::Uuid;
 
 pub async fn create_customer(

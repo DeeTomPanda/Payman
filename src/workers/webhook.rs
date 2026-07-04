@@ -1,9 +1,9 @@
 use anyhow::Result;
 use hmac::{Hmac, Mac};
+use serde_json::json;
 use sha2::Sha256;
 use sqlx::PgPool;
 use uuid::Uuid;
-use serde_json::json;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -60,10 +60,10 @@ pub async fn dispatch(
 }
 
 // signs the payload with HMAC-SHA256, add timestamp to it as well to prevent replay attacks
-pub fn sign_payload(secret: &str, payload: &str,timestamp: i64) -> String {
+pub fn sign_payload(secret: &str, payload: &str, timestamp: i64) -> String {
     let message = format!("{}.{}", timestamp, payload);
-    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    let mut mac =
+        HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC can take key of any size");
     mac.update(message.as_bytes());
     hex::encode(mac.finalize().into_bytes())
 }
